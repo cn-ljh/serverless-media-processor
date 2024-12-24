@@ -1,0 +1,115 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Parameters:
+  BucketName:
+    Type: String
+    Description: Name of the S3 bucket for storing media files
+Globals:
+  Function:
+    Runtime: python3.9
+    Environment:
+      Variables:
+        S3_BUCKET_NAME:
+          Ref: BucketName
+        AWS_REGION:
+          Ref: AWS::Region
+Resources:
+  MediaProcessorApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: prod
+      Cors:
+        AllowMethods: '''POST,GET'''
+        AllowHeaders: '''*'''
+        AllowOrigin: '''*'''
+  ImageProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ImageProcessorFunction
+      Handler: handler.handler
+      Timeout: 30
+      MemorySize: 512
+      Policies:
+      - S3CrudPolicy:
+          BucketName:
+            Ref: BucketName
+      Events:
+        ProcessAPI:
+          Type: Api
+          Properties:
+            Path: /images/process
+            Method: post
+            RestApiId:
+              Ref: MediaProcessorApi
+    Metadata:
+      SamResourceId: ImageProcessorFunction
+  DocumentProcessorRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName:
+        Fn::Sub: ${AWS::StackName}-document-processor
+  DocumentProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Image
+      ImageConfig:
+        Command:
+        - handler.handler
+      Timeout: 60
+      MemorySize: 1024
+      ImageUri: latest
+      Policies:
+      - S3CrudPolicy:
+          BucketName:
+            Ref: BucketName
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: TasksTable
+      Events:
+        ProcessAPI:
+          Type: Api
+          Properties:
+            Path: /documents/process
+            Method: post
+            RestApiId:
+              Ref: MediaProcessorApi
+        GetTaskAPI:
+          Type: Api
+          Properties:
+            Path: /documents/tasks/{taskId}
+            Method: get
+            RestApiId:
+              Ref: MediaProcessorApi
+  TasksTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName:
+        Fn::Sub: ${AWS::StackName}-tasks
+      AttributeDefinitions:
+      - AttributeName: task_id
+        AttributeType: S
+      KeySchema:
+      - AttributeName: task_id
+        KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value:
+      Fn::Sub: https://${MediaProcessorApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/prod
+  ImageProcessEndpoint:
+    Description: Image processing endpoint
+    Value:
+      Fn::Sub: https://${MediaProcessorApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/prod/images/process
+  DocumentProcessEndpoint:
+    Description: Document processing endpoint
+    Value:
+      Fn::Sub: https://${MediaProcessorApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/prod/documents/process
+  TasksApiEndpoint:
+    Description: Task status endpoint
+    Value:
+      Fn::Sub: https://${MediaProcessorApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/prod/documents/tasks/{taskId}
+  TasksTableName:
+    Description: Name of the DynamoDB table for task tracking
+    Value:
+      Ref: TasksTable
