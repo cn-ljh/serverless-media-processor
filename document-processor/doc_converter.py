@@ -5,7 +5,6 @@ from enum import Enum
 from typing import List, Optional, Tuple
 import subprocess
 import tempfile
-from fastapi import HTTPException
 from PIL import Image
 import fitz  # PyMuPDF
 from docx import Document
@@ -16,6 +15,13 @@ from b64encoder_decoder import custom_b64decode
 # 设置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+class ProcessingError(Exception):
+    """Custom exception for processing errors"""
+    def __init__(self, status_code: int, detail: str):
+        self.status_code = status_code
+        self.detail = detail
+        super().__init__(detail)
 
 class SourceFormat(str, Enum):
     # Word formats
@@ -117,7 +123,7 @@ def convert_to_pdf(input_path: str, output_path: str, source_format: SourceForma
         if result.returncode != 0:
             error_msg = f"LibreOffice conversion failed: {result.stderr}"
             logger.error(error_msg)
-            raise HTTPException(status_code=500, detail=error_msg)
+            raise ProcessingError(status_code=500, detail=error_msg)
         
         # 重命名输出文件
         temp_pdf = os.path.join(
@@ -130,11 +136,11 @@ def convert_to_pdf(input_path: str, output_path: str, source_format: SourceForma
     except subprocess.CalledProcessError as e:
         error_msg = f"Failed to convert to PDF: {str(e)}"
         logger.error(error_msg)
-        raise HTTPException(status_code=500, detail=error_msg)
+        raise ProcessingError(status_code=500, detail=error_msg)
     except Exception as e:
         error_msg = f"Unexpected error during PDF conversion: {str(e)}"
         logger.error(error_msg)
-        raise HTTPException(status_code=500, detail=error_msg)
+        raise ProcessingError(status_code=500, detail=error_msg)
 
 def convert_pdf_to_images(pdf_path: str, output_path: str, pages: List[int] = None, format: str = 'PNG', dpi: int = 300):
     """Convert PDF pages to images with specified DPI"""
@@ -175,7 +181,7 @@ def convert_pdf_to_images(pdf_path: str, output_path: str, pages: List[int] = No
         if not images:
             error_msg = "No valid pages to convert"
             logger.error(error_msg)
-            raise HTTPException(status_code=400, detail=error_msg)
+            raise ProcessingError(status_code=400, detail=error_msg)
         
         # 保存图像
         if format.upper() == 'PDF':
@@ -212,7 +218,7 @@ def convert_pdf_to_images(pdf_path: str, output_path: str, pages: List[int] = No
     except Exception as e:
         error_msg = f"Failed to convert PDF to images: {str(e)}"
         logger.error(error_msg)
-        raise HTTPException(status_code=500, detail=error_msg)
+        raise ProcessingError(status_code=500, detail=error_msg)
     finally:
         if 'pdf_document' in locals():
             pdf_document.close()
@@ -288,14 +294,14 @@ def convert_pdf_to_text(pdf_path: str, output_path: str, pages: List[int] = None
         else:
             error_msg = "No valid pages to extract text from"
             logger.error(error_msg)
-            raise HTTPException(status_code=400, detail=error_msg)
+            raise ProcessingError(status_code=400, detail=error_msg)
             
         logger.info("Text extraction successful")
         
     except Exception as e:
         error_msg = f"Failed to convert PDF to text: {str(e)}"
         logger.error(error_msg)
-        raise HTTPException(status_code=500, detail=error_msg)
+        raise ProcessingError(status_code=500, detail=error_msg)
     finally:
         if 'pdf_document' in locals():
             pdf_document.close()
@@ -401,11 +407,11 @@ def convert_document(input_path: str, output_path: str, source_format: SourceFor
             else:
                 error_msg = f"不支持的目标格式: {target_format}"
                 logger.error(error_msg)
-                raise HTTPException(status_code=400, detail=error_msg)
+                raise ProcessingError(status_code=400, detail=error_msg)
                 
             logger.info("文档转换成功完成")
             
         except Exception as e:
             error_msg = f"文档转换失败: {str(e)}"
             logger.error(error_msg)
-            raise HTTPException(status_code=500, detail=error_msg)
+            raise ProcessingError(status_code=500, detail=error_msg)

@@ -1,8 +1,6 @@
 import os
 import boto3
 from botocore.exceptions import ClientError
-from fastapi import HTTPException
-from pydantic import BaseModel, Field
 from s3_operations import S3Config
 from enum import Enum
 from datetime import datetime, timezone
@@ -12,15 +10,19 @@ class TaskStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
 
-class DDBConfig(BaseModel):
-    region_name: str = Field(default=os.getenv("AWS_REGION", "us-east-1"))
-    table_name: str = Field(
-        default=os.getenv("DDB_TABLE_NAME"),
-        description="DynamoDB table name is required. Set DDB_TABLE_NAME environment variable."
-    )
+class ProcessingError(Exception):
+    """Custom exception for processing errors"""
+    def __init__(self, status_code: int, detail: str):
+        self.status_code = status_code
+        self.detail = detail
+        super().__init__(detail)
 
-    def __init__(self, **data):
-        super().__init__(**data)
+class DDBConfig:
+    """DynamoDB configuration class"""
+    def __init__(self):
+        self.region_name = os.getenv("AWS_REGION", "us-east-1")
+        self.table_name = os.getenv("DDB_TABLE_NAME")
+        
         if not self.table_name:
             raise ValueError("DDB_TABLE_NAME environment variable must be set")
 
@@ -63,12 +65,12 @@ def create_task_record(task_id: str, source_key: str, target_key: str, task_type
             }
         )
     except ClientError as e:
-        raise HTTPException(
+        raise ProcessingError(
             status_code=500,
             detail=f"Failed to create task record: {str(e)}"
         )
 
-def update_task_status(task_id: str, status: TaskStatus, error_message: str = None):
+def update_task_status(task_id: str, task_type: str, status: TaskStatus, error_message: str = None):
     """
     Update task status in DynamoDB
     
@@ -98,24 +100,25 @@ def update_task_status(task_id: str, status: TaskStatus, error_message: str = No
     try:
         client.update_item(
             TableName=config.table_name,
-            Key={'TaskId': {'S': task_id}},
+            Key={'TaskId': {'S': task_id},
+                 'TaskType':{'S': task_type}},
             UpdateExpression=update_expr,
             ExpressionAttributeNames=expr_names,
             ExpressionAttributeValues=expr_values
         )
     except ClientError as e:
-        raise HTTPException(
+        raise ProcessingError(
             status_code=500,
             detail=f"Failed to update task status: {str(e)}"
         )
 
-def get_task_status(task_id: str) -> dict:
+def get_task_status(task_id: str, task_type: str) -> dict:
     """
     Get task status from DynamoDB
     
     Args:
         task_id: Task identifier
-        
+        task_type: Task type        
     Returns:
         dict: Task record
     """
@@ -125,16 +128,17 @@ def get_task_status(task_id: str) -> dict:
     try:
         response = client.get_item(
             TableName=config.table_name,
-            Key={'TaskId': {'S': task_id}}
+            Key={'TaskId': {'S': task_id},
+                 'TaskType':{'S': task_type}}
         )
         if 'Item' not in response:
-            raise HTTPException(
+            raise ProcessingError(
                 status_code=404,
                 detail=f"Task not found: {task_id}"
             )
         return response['Item']
     except ClientError as e:
-        raise HTTPException(
+        raise ProcessingError(
             status_code=500,
             detail=f"Failed to get task status: {str(e)}"
         )

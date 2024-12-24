@@ -1,19 +1,14 @@
 import boto3
 from botocore.exceptions import ClientError
-from fastapi import HTTPException
-from pydantic import BaseModel, Field
 import os
 
-class S3Config(BaseModel):
-    region_name: str = Field(default=os.getenv("AWS_REGION", "us-east-1"))
-    bucket_name: str = Field(
-        default=os.getenv("S3_BUCKET_NAME"),
-        description="S3 bucket name is required. Set S3_BUCKET_NAME environment variable."
-    )
-    object_prefix: str = Field(default=os.getenv("S3_OBJECT_PREFIX", ""))
-
-    def __init__(self, **data):
-        super().__init__(**data)
+class S3Config:
+    """S3 configuration class"""
+    def __init__(self):
+        self.region_name = os.getenv("AWS_REGION", "us-east-1")
+        self.bucket_name = os.getenv("S3_BUCKET_NAME")
+        self.object_prefix = os.getenv("S3_OBJECT_PREFIX", "")
+        
         if not self.bucket_name:
             raise ValueError("S3_BUCKET_NAME environment variable must be set")
 
@@ -38,10 +33,10 @@ def download_object_from_s3(client, bucket, key):
         bytes: object data
         
     Raises:
-        HTTPException: If object not found or bucket not configured
+        ProcessingError: If object not found or bucket not configured
     """
     if not bucket:
-        raise HTTPException(
+        raise ProcessingError(
             status_code=500,
             detail="S3 bucket not configured. Set S3_BUCKET_NAME environment variable."
         )
@@ -51,11 +46,11 @@ def download_object_from_s3(client, bucket, key):
         return response['Body'].read()
     except ClientError as e:
         if e.response['Error']['Code'] == 'NoSuchKey':
-            raise HTTPException(status_code=404, detail=f"object not found: {key}")
+            raise ProcessingError(status_code=404, detail=f"object not found: {key}")
         elif e.response['Error']['Code'] == 'NoSuchBucket':
-            raise HTTPException(status_code=500, detail=f"Bucket not found: {bucket}")
+            raise ProcessingError(status_code=500, detail=f"Bucket not found: {bucket}")
         else:
-            raise HTTPException(status_code=500, detail=f"S3 error: {str(e)}")
+            raise ProcessingError(status_code=500, detail=f"S3 error: {str(e)}")
 
 def upload_object_to_s3(client, bucket, key, object_data):
     """
@@ -68,10 +63,10 @@ def upload_object_to_s3(client, bucket, key, object_data):
         object_data: object bytes to upload
         
     Raises:
-        HTTPException: If upload fails or bucket not configured
+        ProcessingError: If upload fails or bucket not configured
     """
     if not bucket:
-        raise HTTPException(
+        raise ProcessingError(
             status_code=500,
             detail="S3 bucket not configured. Set S3_BUCKET_NAME environment variable."
         )
@@ -79,9 +74,16 @@ def upload_object_to_s3(client, bucket, key, object_data):
     try:
         client.put_object(Bucket=bucket, Key=key, Body=object_data)
     except ClientError as e:
-        raise HTTPException(status_code=500, detail=f"Failed to upload object: {str(e)}")
+        raise ProcessingError(status_code=500, detail=f"Failed to upload object: {str(e)}")
 
 def get_full_s3_key(object_key: str) -> str:
     """Get full S3 key including prefix if configured"""
     config = S3Config()
     return os.path.join(config.object_prefix, object_key)
+
+class ProcessingError(Exception):
+    """Custom exception for processing errors"""
+    def __init__(self, status_code: int, detail: str):
+        self.status_code = status_code
+        self.detail = detail
+        super().__init__(detail)

@@ -15,6 +15,39 @@ Resources:
         AllowMethods: "'POST,GET'"
         AllowHeaders: "'*'"
         AllowOrigin: "'*'"
+      BinaryMediaTypes:
+        - '*/*'
+      OpenApiVersion: '3.0.1'
+      DefinitionBody:
+        openapi: '3.0.1'
+        paths:
+          /image/{key}:
+            get:
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ImageProcessorFunction.Arn}/invocations
+                contentHandling: CONVERT_TO_BINARY
+                passthroughBehavior: when_no_match
+                timeoutInMillis: 29000
+          /doc/{object_key}:
+            post:
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentProcessorFunction.Arn}/invocations
+                contentHandling: CONVERT_TO_BINARY
+                passthroughBehavior: when_no_match
+                timeoutInMillis: 29000
+          /task/{task_id}:
+            get:
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentProcessorFunction.Arn}/invocations
+                contentHandling: CONVERT_TO_BINARY
+                passthroughBehavior: when_no_match
+                timeoutInMillis: 29000
 
   ImageProcessorFunction:
     Type: AWS::Serverless::Function
@@ -34,7 +67,7 @@ Resources:
         GetImageAPI:
           Type: Api
           Properties:
-            Path: /image/{key}
+            Path: /image/{object_key}
             Method: get
             RestApiId: !Ref MediaProcessorApi
 
@@ -49,6 +82,7 @@ Resources:
       Environment:
         Variables:
           S3_BUCKET_NAME: !Ref BucketName
+          DDB_TABLE_NAME: !Ref TasksTable
       Timeout: 60
       MemorySize: 1024
       Policies:
@@ -75,11 +109,15 @@ Resources:
     Properties:
       TableName: !Sub ${AWS::StackName}-tasks
       AttributeDefinitions:
-        - AttributeName: task_id
+        - AttributeName: TaskId
+          AttributeType: S
+        - AttributeName: TaskType
           AttributeType: S
       KeySchema:
-        - AttributeName: task_id
+        - AttributeName: TaskId
           KeyType: HASH
+        - AttributeName: TaskType
+          KeyType: RANGE
       BillingMode: PAY_PER_REQUEST
 
 Outputs:

@@ -2,8 +2,6 @@ import os
 import uuid
 import tempfile
 import logging
-from fastapi import HTTPException
-from fastapi.responses import JSONResponse
 
 from s3_operations import (
     S3Config, get_s3_client, download_object_from_s3, 
@@ -23,6 +21,19 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+class ProcessingError(Exception):
+    """Custom exception for processing errors"""
+    def __init__(self, status_code: int, detail: str):
+        self.status_code = status_code
+        self.detail = detail
+        super().__init__(detail)
+
+class Response:
+    """Custom response class"""
+    def __init__(self, status_code: int, body: dict):
+        self.status_code = status_code
+        self.body = body
 
 def parse_operation(operation_str: str) -> tuple[str, dict]:
     """
@@ -56,33 +67,33 @@ def get_file_extension(key: str) -> str:
     """Get file extension from key"""
     return os.path.splitext(key)[1][1:].lower()
 
-async def process_document_async(task_id: str, object_key: str, s3_config: S3Config, s3_client, output_key: str, target_bucket: str, source_format: SourceFormat, target_format: TargetFormat, pages=None):
+def process_document_sync(task_id: str, object_key: str, s3_config: S3Config, s3_client, output_key: str, target_bucket: str, source_format: SourceFormat, target_format: TargetFormat, pages=None):
     """
-    Asynchronous document processing function
+    Synchronous document processing function
     """
+    # Download source document
     try:
-        # Download source document
-        try:
-            full_key = get_full_s3_key(object_key)
-            logger.info(f"Task {task_id}: Downloading source document from S3 with key: {full_key}")
+        full_key = get_full_s3_key(object_key)
+        logger.info(f"Task {task_id}: Downloading source document from S3 with key: {full_key}")
+        source_data = download_object_from_s3(
+            s3_client, 
+            s3_config.bucket_name,
+            full_key
+        )
+    except ProcessingError as e:
+        if e.status_code == 404:
+            # Try without prefix
+            logger.info(f"Task {task_id}: Retrying download without prefix: {object_key}")
             source_data = download_object_from_s3(
-                s3_client, 
+                s3_client,
                 s3_config.bucket_name,
-                full_key
+                object_key
             )
-        except HTTPException as e:
-            if e.status_code == 404:
-                # Try without prefix
-                logger.info(f"Task {task_id}: Retrying download without prefix: {object_key}")
-                source_data = download_object_from_s3(
-                    s3_client,
-                    s3_config.bucket_name,
-                    object_key
-                )
-            else:
-                logger.error(f"Task {task_id}: Failed to download source document: {str(e)}")
-                raise
-        
+        else:
+            logger.error(f"Task {task_id}: Failed to download source document: {str(e)}")
+            raise
+    
+    try:
         # Create temporary directory for processing
         with tempfile.TemporaryDirectory() as temp_dir:
             # Use original filename as temp filename to maintain extension
@@ -117,19 +128,19 @@ async def process_document_async(task_id: str, object_key: str, s3_config: S3Con
                     output_s3_key,
                     f.read()
                 )
-                
+        task_type = "doc/convert"
         # Update task status
         logger.info(f"Task {task_id}: Conversion completed successfully")
-        update_task_status(task_id, TaskStatus.COMPLETED)
+        update_task_status(task_id, task_type, TaskStatus.COMPLETED)
         
     except Exception as e:
         # Update task status with error
         error_msg = str(e)
         logger.error(f"Task {task_id}: Conversion failed - {error_msg}")
-        update_task_status(task_id, TaskStatus.FAILED, error_msg)
+        update_task_status(task_id, task_type, TaskStatus.FAILED, error_msg)
         raise
 
-async def process_document(object_key: str, operations: str = None):
+def process_document(object_key: str, operations: str = None):
     """
     Process document with specified operations
     
@@ -138,10 +149,10 @@ async def process_document(object_key: str, operations: str = None):
         operations: Operation string (e.g., 'convert,source_doc,target_png,pages_1,2,4-10,b_base64bucket')
         
     Returns:
-        JSONResponse with task details
+        Response object with task details
         
     Raises:
-        HTTPException: If operation fails
+        ProcessingError: If operation fails
     """
     try:
         s3_config = S3Config()
@@ -154,21 +165,21 @@ async def process_document(object_key: str, operations: str = None):
         # Parse operations
         if not operations:
             logger.error(f"Task {task_id}: No operations specified")
-            raise HTTPException(
+            raise ProcessingError(
                 status_code=400,
                 detail="No operations specified"
             )
             
         operation, params = parse_operation(operations)
         if operation != 'convert':
-            raise HTTPException(
+            raise ProcessingError(
                 status_code=400,
                 detail=f"Unknown operation: {operation}"
             )
             
         # Validate parameters
         if 'target' not in params:
-            raise HTTPException(
+            raise ProcessingError(
                 status_code=400,
                 detail="Target format not specified"
             )
@@ -181,7 +192,7 @@ async def process_document(object_key: str, operations: str = None):
         try:
             source_format = SourceFormat(source_format)
         except ValueError:
-            raise HTTPException(
+            raise ProcessingError(
                 status_code=400,
                 detail=f"Unsupported source format: {source_format}"
             )
@@ -190,7 +201,7 @@ async def process_document(object_key: str, operations: str = None):
         try:
             target_format = TargetFormat(params['target'])
         except ValueError:
-            raise HTTPException(
+            raise ProcessingError(
                 status_code=400,
                 detail=f"Unsupported target format: {params['target']}"
             )
@@ -201,11 +212,11 @@ async def process_document(object_key: str, operations: str = None):
         # Generate output key
         base_name = os.path.splitext(object_key)[0]
         if pages:
-            # 如果指定了页面，将页码添加到文件名中
+            # If pages specified, add page numbers to filename
             page_indices = '_'.join(str(p) for p in pages)
             output_key = f"{base_name}_p{page_indices}.{target_format.value}"
         else:
-            # 如果没有指定页面，直接使用原文件名
+            # If no pages specified, use original filename
             output_key = f"{base_name}.{target_format.value}"
         
         # Determine target bucket
@@ -216,7 +227,7 @@ async def process_document(object_key: str, operations: str = None):
                 logger.info(f"Task {task_id}: Using custom target bucket: {target_bucket}")
             except Exception as e:
                 logger.error(f"Task {task_id}: Invalid target bucket encoding: {str(e)}")
-                raise HTTPException(
+                raise ProcessingError(
                     status_code=400,
                     detail="Invalid target bucket encoding"
                 )
@@ -239,9 +250,8 @@ async def process_document(object_key: str, operations: str = None):
             conversion_params=conversion_params
         )
         
-        # Start async processing
-        import asyncio
-        asyncio.create_task(process_document_async(
+        # Process document synchronously
+        process_document_sync(
             task_id=task_id,
             object_key=object_key,
             s3_config=s3_config,
@@ -251,12 +261,11 @@ async def process_document(object_key: str, operations: str = None):
             source_format=source_format,
             target_format=target_format,
             pages=pages
-        ))
+        )
         
-        # Return immediate response with task ID
-        return JSONResponse(
+        return Response(
             status_code=202,
-            content={
+            body={
                 'task_id': task_id,
                 'status': TaskStatus.PROCESSING.value,
                 'task_type': conversion_task,
@@ -268,9 +277,9 @@ async def process_document(object_key: str, operations: str = None):
         )
             
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        raise ProcessingError(status_code=500, detail=str(e))
 
-async def get_task_status(task_id: str):
+def get_task_status(task_id: str, task_type: str):
     """
     Get document conversion task status from DynamoDB
     
@@ -278,22 +287,23 @@ async def get_task_status(task_id: str):
         task_id: Task identifier
         
     Returns:
-        JSONResponse with task status details
+        Response object with task status details
         
     Raises:
-        HTTPException: If task not found or other error occurs
+        ProcessingError: If task not found or other error occurs
     """
     try:
         logger.info(f"Retrieving status for task {task_id}")
         # Get latest task status from DynamoDB
-        task = get_ddb_task_status(task_id)
+        task = get_ddb_task_status(task_id, task_type)
         if not task:
-            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+            raise ProcessingError(status_code=404, detail=f"Task {task_id} not found")
             
-        return JSONResponse(
+        return Response(
             status_code=200,
-            content={
+            body={
                 'task_id': task_id,
+                'task_type': task_type,
                 'status': task['Status']['S'],
                 'source_key': task['SourceKey']['S'],
                 'target_key': task['TargetKey']['S'],
@@ -304,8 +314,9 @@ async def get_task_status(task_id: str):
                 'error_message': task.get('ErrorMessage', {}).get('S')
             }
         )
-    except HTTPException:
+            
+    except ProcessingError:
         raise
     except Exception as e:
         logger.error(f"Error retrieving task {task_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise ProcessingError(status_code=500, detail=str(e))

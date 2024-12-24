@@ -1,4 +1,5 @@
 import base64
+from typing import Union
 
 def custom_b64decode(encoded: str) -> str:
     """
@@ -22,3 +23,11 @@ def custom_b64encode(decoded: str) -> str:
     """
     encoded = base64.b64encode(decoded.encode('utf-8')).decode('utf-8')
     return encoded.replace('+', '-').replace('/', '_').rstrip('=')
+
+def encode(data: bytes) -> str:
+    """
+    Encode binary data to standard base64.
+    For API Gateway binary responses, we need to use standard base64 encoding
+    with padding, not URL-safe encoding.
+    """
+    return base64.b64encode(data).decode('utf-8')

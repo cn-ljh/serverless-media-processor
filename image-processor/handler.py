@@ -1,39 +1,7 @@
 import json
 from typing import Dict, Any
-import image_format_converter
-import image_auto_orient
-import image_cropper
-import image_quality
-import image_resizer
-import image_watermark
-import s3_operations
-import b64encoder_decoder
-
-def parse_operations(operations_str: str) -> Dict[str, Any]:
-    """Parse operations string into a dictionary of operations and parameters"""
-    if not operations_str:
-        return {}
-    
-    operations = {}
-    # Split chained operations
-    operation_chains = operations_str.split('/')
-    
-    for chain in operation_chains:
-        parts = chain.split(',')
-        if not parts:
-            continue
-            
-        # First part is always the operation name
-        current_op = parts[0]
-        operations[current_op] = {}
-        
-        # Remaining parts are parameters
-        for part in parts[1:]:
-            if '_' in part:
-                param_key, param_value = part.split('_')
-                operations[current_op][param_key] = param_value
-    
-    return operations
+import base64
+from image_processor import process_image
 
 def get_image(event: Dict[str, Any]) -> Dict[str, Any]:
     """Get and process image based on path parameter and operations"""
@@ -53,63 +21,22 @@ def get_image(event: Dict[str, Any]) -> Dict[str, Any]:
                 })
             }
 
-        # Initialize S3 client
-        s3_client = s3_operations.get_s3_client()
-        config = s3_operations.S3Config()
+        # Process image using image_processor module
+        processed_image = process_image(object_key, operations_str)
 
-        # Download image
-        image_data = s3_operations.download_object_from_s3(
-            s3_client, 
-            config.bucket_name, 
-            object_key
-        )
-
-        # Process image based on operations
-        processed_image = image_data
-        operations = parse_operations(operations_str)
-
-        # Apply operations
-        for op_name, op_params in operations.items():
-            if op_name == 'quality':
-                processed_image = image_quality.adjust_quality(
-                    processed_image,
-                    int(op_params.get('q', 80))
-                )
-            elif op_name == 'format':
-                processed_image = image_format_converter.convert_format(
-                    processed_image,
-                    op_params.get('f', 'jpeg')
-                )
-            elif op_name == 'auto_orient':
-                processed_image = image_auto_orient.auto_orient_image(processed_image)
-            elif op_name == 'crop':
-                processed_image = image_cropper.crop_image(
-                    processed_image,
-                    op_params
-                )
-            elif op_name == 'resize':
-                processed_image = image_resizer.resize_image(
-                    processed_image,
-                    op_params
-                )
-            elif op_name == 'watermark':
-                processed_image = image_watermark.add_watermark(
-                    processed_image,
-                    op_params
-                )
-
-        # Convert processed image to base64
-        base64_image = b64encoder_decoder.encode_to_base64(processed_image)
-
+        # Get content type from headers
+        content_type = processed_image.headers.get('Content-Type', 'image/jpeg')
+        
+        # Use standard base64 encoding for binary data
+        base64_body = base64.b64encode(processed_image.body).decode('utf-8')
+        
         return {
             'statusCode': 200,
             'headers': {
-                'Content-Type': 'application/json'
+                'Content-Type': content_type
             },
-            'body': json.dumps({
-                'image': base64_image,
-                'original_key': object_key
-            })
+            'body': base64_body,
+            'isBase64Encoded': True
         }
 
     except Exception as e:

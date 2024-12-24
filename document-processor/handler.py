@@ -2,7 +2,7 @@ import json
 from typing import Dict, Any
 from doc_processor import process_document, get_task_status
 
-async def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Lambda handler for document processing"""
     print(f"Received event: {json.dumps(event)}")
     
@@ -42,15 +42,8 @@ async def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     })
                 }
 
-            operations = {
-                'convert': {
-                    'target': parts[1].split('_')[1],
-                    'source': parts[2].split('_')[1]
-                }
-            }
-            
             # Process document using existing module
-            response = await process_document(object_key, operations)
+            response = process_document(object_key, operations_str)
             return {
                 'statusCode': response.status_code,
                 'body': json.dumps(response.body)
@@ -67,7 +60,7 @@ async def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     })
                 }
                 
-            response = await get_task_status(task_id)
+            response = get_task_status(task_id, "doc/convert")
             return {
                 'statusCode': response.status_code,
                 'body': json.dumps(response.body)
