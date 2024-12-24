@@ -11,18 +11,43 @@ async def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         http_method = event.get('httpMethod', 'POST')
         
         if http_method == 'POST':
-            # Parse request body
-            body = json.loads(event.get('body', '{}'))
-            object_key = body.get('source_key')
-            operations = body.get('operations')
+            # Get parameters
+            object_key = event.get('pathParameters', {}).get('object_key')
+            query_params = event.get('queryStringParameters', {}) or {}
+            operations_str = query_params.get('operations', '')
             
-            if not object_key or not operations:
+            if not object_key:
                 return {
                     'statusCode': 400,
                     'body': json.dumps({
-                        'error': 'source_key and operations are required'
+                        'error': 'object_key is required in path parameters'
                     })
                 }
+            
+            if not operations_str:
+                return {
+                    'statusCode': 400,
+                    'body': json.dumps({
+                        'error': 'operations are required in query parameters'
+                    })
+                }
+
+            # Parse operations string
+            parts = operations_str.split(',')
+            if len(parts) < 3 or parts[0] != 'convert':
+                return {
+                    'statusCode': 400,
+                    'body': json.dumps({
+                        'error': 'Invalid operations format. Expected: convert,target_format,source_format'
+                    })
+                }
+
+            operations = {
+                'convert': {
+                    'target': parts[1].split('_')[1],
+                    'source': parts[2].split('_')[1]
+                }
+            }
             
             # Process document using existing module
             response = await process_document(object_key, operations)
@@ -33,7 +58,7 @@ async def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             
         elif http_method == 'GET':
             # Get task status
-            task_id = event.get('pathParameters', {}).get('taskId')
+            task_id = event.get('pathParameters', {}).get('task_id')
             if not task_id:
                 return {
                     'statusCode': 400,

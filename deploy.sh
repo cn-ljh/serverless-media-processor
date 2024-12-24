@@ -23,41 +23,31 @@ pip install -r requirements.txt
 deactivate
 cd ..
 
-# Build and push document processor container image
-echo "Building and pushing document processor container image..."
-cd document-processor
-
-# Get ECR repository URI
+# Get account ID for resource naming
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-ECR_REPO="${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com.cn/media-processor-document-processor"
-
-# Authenticate Docker to ECR
-aws ecr get-login-password --region ${AWS_DEFAULT_REGION} | docker login --username AWS --password-stdin ${ACCOUNT_ID}.dkr.ecr.${AWS_DEFAULT_REGION}.amazonaws.com.cn
-
-# Create ECR repository if it doesn't exist
-aws ecr create-repository --repository-name media-processor-document-processor --region ${AWS_DEFAULT_REGION} || true
-
-# Build and push the image
-docker build -t ${ECR_REPO}:latest .
-docker push ${ECR_REPO}:latest
-
-cd ..
-
-# Build and deploy the unified stack with container image
-echo "Deploying unified media processor stack..."
-sam build
+STACK_NAME="media-processor"
 
 # Create S3 bucket for SAM artifacts if it doesn't exist
 SAM_BUCKET="sam-artifacts-${ACCOUNT_ID}-${AWS_DEFAULT_REGION}"
 aws s3 mb s3://${SAM_BUCKET} --region ${AWS_DEFAULT_REGION} || true
 
-sam deploy --stack-name media-processor \
+# Remove any previous build artifacts
+rm -rf .aws-sam
+
+# Build the SAM application
+echo "Building SAM application..."
+sam build --parallel
+
+# Deploy the application
+echo "Deploying SAM application..."
+sam deploy \
+    --stack-name ${STACK_NAME} \
     --parameter-overrides BucketName=$S3_BUCKET \
     --capabilities CAPABILITY_IAM \
-    --region cn-northwest-1 \
-    --confirm-changeset \
-    --image-repository ${ECR_REPO} \
-    --s3-bucket ${SAM_BUCKET}
+    --region ${AWS_DEFAULT_REGION} \
+    --s3-bucket ${SAM_BUCKET} \
+    --no-fail-on-empty-changeset \
+    --resolve-image-repos
 
 echo "Deployment completed!"
 echo "Check the AWS Console for the API Gateway endpoints."

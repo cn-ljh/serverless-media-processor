@@ -29,8 +29,8 @@ Resources:
         ProcessAPI:
           Type: Api
           Properties:
-            Path: /process
-            Method: post
+            Path: /
+            Method: get
             RestApiId: !Ref ImageProcessorApi
 
   ImageProcessorApi:
@@ -38,7 +38,7 @@ Resources:
     Properties:
       StageName: prod
       Cors:
-        AllowMethods: "'POST'"
+        AllowMethods: "'GET'"
         AllowHeaders: "'*'"
         AllowOrigin: "'*'"
 
