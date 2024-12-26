@@ -23,6 +23,15 @@ pip install -r requirements.txt
 deactivate
 cd ..
 
+# Install dependencies for task processor
+echo "Installing task processor dependencies..."
+cd task-processor
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+deactivate
+cd ..
+
 # Get account ID for resource naming
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 STACK_NAME="media-processor"

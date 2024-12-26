@@ -45,7 +45,7 @@ Resources:
                 type: aws_proxy
                 httpMethod: POST
                 uri:
-                  Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentProcessorFunction.Arn}/invocations
+                  Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${TaskProcessorFunction.Arn}/invocations
                 contentHandling: CONVERT_TO_BINARY
                 passthroughBehavior: when_no_match
                 timeoutInMillis: 29000
@@ -150,6 +150,56 @@ Resources:
             - lambda:InvokeFunction
             - lambda:InvokeAsync
             Resource: '*'
+  TaskProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+      - Fn::Sub: arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+      - PolicyName: TaskProcessorPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - dynamodb:GetItem
+            Resource:
+              Fn::GetAtt:
+              - TasksTable
+              - Arn
+  TaskProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: TaskProcessorFunction
+      Runtime: python3.9
+      Role:
+        Fn::GetAtt:
+        - TaskProcessorRole
+        - Arn
+      Environment:
+        Variables:
+          DDB_TABLE_NAME:
+            Ref: TasksTable
+      Handler: handler.handler
+      Timeout: 30
+      MemorySize: 256
+      Events:
+        GetTaskAPI:
+          Type: Api
+          Properties:
+            Path: /task/{task_id}
+            Method: get
+            RestApiId:
+              Ref: MediaProcessorApi
+    Metadata:
+      SamResourceId: TaskProcessorFunction
   DocumentProcessorFunction:
     Type: AWS::Serverless::Function
     Metadata:
@@ -179,13 +229,6 @@ Resources:
             Method: post
             RestApiId:
               Ref: MediaProcessorApi
-        GetTaskAPI:
-          Type: Api
-          Properties:
-            Path: /task/{task_id}
-            Method: get
-            RestApiId:
-              Ref: MediaProcessorApi
       ImageUri: documentprocessorfunction:latest
   TasksTable:
     Type: AWS::DynamoDB::Table
@@ -195,13 +238,9 @@ Resources:
       AttributeDefinitions:
       - AttributeName: TaskId
         AttributeType: S
-      - AttributeName: TaskType
-        AttributeType: S
       KeySchema:
       - AttributeName: TaskId
         KeyType: HASH
-      - AttributeName: TaskType
-        KeyType: RANGE
       BillingMode: PAY_PER_REQUEST
 Outputs:
   ApiEndpoint:
