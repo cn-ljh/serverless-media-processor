@@ -81,6 +81,34 @@ def get_full_s3_key(object_key: str) -> str:
     config = S3Config()
     return os.path.join(config.object_prefix, object_key)
 
+def generate_presigned_url(client, bucket: str, key: str, expiration: int = 3600) -> str:
+    """
+    Generate a presigned URL for an S3 object
+    
+    Args:
+        client: boto3 S3 client
+        bucket: S3 bucket name
+        key: Object key in S3
+        expiration: URL expiration time in seconds (default 1 hour)
+        
+    Returns:
+        str: Presigned URL for the object
+        
+    Raises:
+        ProcessingError: If URL generation fails
+    """
+    try:
+        response = client.generate_presigned_url('get_object',
+                                               Params={'Bucket': bucket,
+                                                      'Key': key},
+                                               ExpiresIn=expiration)
+        return response
+    except ClientError as e:
+        raise ProcessingError(
+            status_code=500,
+            detail=f"Failed to generate presigned URL: {str(e)}"
+        )
+
 class ProcessingError(Exception):
     """Custom exception for processing errors"""
     def __init__(self, status_code: int, detail: str):

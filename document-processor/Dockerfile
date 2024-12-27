@@ -28,12 +28,8 @@ COPY requirements.txt ${LAMBDA_TASK_ROOT}/
 RUN pip install -r ${LAMBDA_TASK_ROOT}/requirements.txt
 
 # Copy function code
-COPY handler.py ${LAMBDA_TASK_ROOT}/
-COPY doc_processor.py ${LAMBDA_TASK_ROOT}/
-COPY doc_converter.py ${LAMBDA_TASK_ROOT}/
-COPY s3_operations.py ${LAMBDA_TASK_ROOT}/
-COPY ddb_operations.py ${LAMBDA_TASK_ROOT}/
-COPY b64encoder_decoder.py ${LAMBDA_TASK_ROOT}/
+COPY . ${LAMBDA_TASK_ROOT}
+
 
 # Set the CMD to your handler
 CMD [ "handler.handler" ]

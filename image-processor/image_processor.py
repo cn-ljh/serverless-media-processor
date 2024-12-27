@@ -113,16 +113,36 @@ def process_image(image_key: str, operations: str = None):
                 
                 elif operation == 'resize':
                     resize_params = {}
+                    # Percentage resize
                     if 'p' in params:
                         resize_params['p'] = params['p']
+                    
+                    # Width/height resize
                     if 'w' in params:
                         resize_params['w'] = params['w']
                     if 'h' in params:
                         resize_params['h'] = params['h']
                     if 'm' in params:
                         resize_params['m'] = ResizeMode(params['m'])
-                    current_image_data = resize_image(current_image_data, resize_params)
                     
+                    # Longest/shortest side resize
+                    if 'l' in params:
+                        resize_params['l'] = params['l']
+                    if 's' in params:
+                        resize_params['s'] = params['s']
+                    
+                    # Additional parameters
+                    if 'limit' in params:
+                        resize_params['limit'] = params['limit']
+                    if 'color' in params:
+                        # Ensure color is properly formatted
+                        color = params['color']
+                        if color and len(color) < 6:
+                            color = color.zfill(6)  # Pad with leading zeros
+                        resize_params['color'] = color
+                    
+                    logger.info(f"Resize parameters: {resize_params}")
+                    current_image_data = resize_image(current_image_data, resize_params)    
                 elif operation == 'crop':
                     crop_params = {
                         'w': params.get('w'),
@@ -141,7 +161,6 @@ def process_image(image_key: str, operations: str = None):
                         color = color.zfill(6)  # Pad with leading zeros if needed
                         
                     watermark_params = {
-                        'text': params.get('text', 'Watermark'),
                         'color': color,
                         't': params.get('t', 100),
                         'g': params.get('g', 'se'),
@@ -155,8 +174,19 @@ def process_image(image_key: str, operations: str = None):
                         'shadow': params.get('shadow', 0),
                         'rotate': params.get('rotate', 0)
                     }
+                    
+                    # Handle either text or image watermark
+                    if 'text' in params:
+                        watermark_params['text'] = params['text']
+                    elif 'image' in params:
+                        watermark_params['image'] = params['image']
+                        if 'P' in params:
+                            watermark_params['P'] = params['P']
+                    else:
+                        watermark_params['text'] = 'Watermark'  # Default text if neither specified
+                        
                     current_image_data = add_watermark(current_image_data, **watermark_params)
-                
+                    
                 elif operation == 'format':
                     format_params = {
                         'f': params.get('f', 'jpg'),

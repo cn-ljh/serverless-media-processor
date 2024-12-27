@@ -57,6 +57,15 @@ Resources:
                 contentHandling: CONVERT_TO_BINARY
                 passthroughBehavior: when_no_match
                 timeoutInMillis: 29000
+          /text/{proxy+}:
+            get:
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentProcessorFunction.Arn}/invocations
+                contentHandling: CONVERT_TO_BINARY
+                passthroughBehavior: when_no_match
+                timeoutInMillis: 29000
 
   ImageProcessorFunction:
     Type: AWS::Serverless::Function
@@ -126,6 +135,10 @@ Resources:
                   - s3:GetObject
                   - s3:PutObject
                 Resource: !Sub arn:${AWS::Partition}:s3:::${BucketName}/*
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !Sub arn:${AWS::Partition}:s3:::${BucketName}
               - Effect: Allow
                 Action:
                   - dynamodb:PutItem
@@ -202,6 +215,12 @@ Resources:
             Path: /doc/{proxy+}
             Method: post
             RestApiId: !Ref MediaProcessorApi
+        TextExtractionAPI:
+          Type: Api
+          Properties:
+            Path: /text/{proxy+}
+            Method: get
+            RestApiId: !Ref MediaProcessorApi
   TasksTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -234,6 +253,9 @@ Outputs:
   VideoEndpoint:
     Description: Video processing endpoint
     Value: !Sub "https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/video/{key}?operations=snapshot,t_5000,f_jpg,w_1280,h_720"
+  TextExtractionEndpoint:
+    Description: Text extraction endpoint
+    Value: !Sub "https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/text/{object_key}?operations=extract"
   TasksTableName:
     Description: Name of the DynamoDB table for task tracking
     Value: !Ref TasksTable

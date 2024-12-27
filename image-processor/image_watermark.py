@@ -4,6 +4,7 @@ import os
 import re
 from b64encoder_decoder import custom_b64encode, custom_b64decode
 from typing import List, Optional, Tuple, Union
+from s3_operations import S3Config, get_s3_client, download_object_from_s3
 
 class WatermarkError(Exception):
     """Custom exception for watermark processing errors"""
@@ -217,10 +218,14 @@ class WatermarkProcessor:
     def _apply_image_watermark(self, watermark: Image.Image, params: ImageWatermarkParams) -> Image.Image:
         """Apply image watermark"""
         try:
-            # Decode image name and load watermark image
-            image_name = custom_b64decode(params.image)
-            wm_path = os.path.join(os.path.dirname(__file__), 'watermarks', image_name)
-            wm_image = Image.open(wm_path).convert('RGBA')
+            # Get watermark image from S3
+            print(f"INFO: params.imgae: {params.image}")
+            image_key = custom_b64decode(params.image)
+            print(f"INFO: image key: {image_key}")
+            s3_config = S3Config()
+            s3_client = get_s3_client()
+            wm_data = download_object_from_s3(s3_client, s3_config.bucket_name, image_key)
+            wm_image = Image.open(BytesIO(wm_data)).convert('RGBA')
         except Exception as e:
             raise WatermarkError(f"Failed to load watermark image: {str(e)}")
 
@@ -325,6 +330,9 @@ def add_watermark(image_data: bytes, text: str = None, image: str = None, color:
     if image is not None:
         # Ensure image is a string before encoding
         image_str = str(image)
-        watermarks.append(ImageWatermarkParams(image=custom_b64encode(image_str), **kwargs))
+        # Filter out text-specific parameters
+        image_params = {k: v for k, v in kwargs.items() 
+                       if k in {'t', 'g', 'x', 'y', 'voffset', 'fill', 'padx', 'pady', 'P'}}
+        watermarks.append(ImageWatermarkParams(image=image_str, **image_params))
         
     return processor.process_image(image_data, watermarks)

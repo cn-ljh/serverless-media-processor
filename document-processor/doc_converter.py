@@ -265,6 +265,51 @@ def extract_text_from_ppt(ppt_path: str) -> str:
     
     return '\n'.join(text_parts)
 
+
+def extract_text_from_excel(excel_path: str) -> str:
+    """Extract text from Excel document"""
+    logger.info(f"Extracting text from Excel document: {excel_path}")
+    try:
+        # Try reading with pandas
+        df = pd.read_excel(excel_path, sheet_name=None)  # Read all sheets
+        text_parts = []
+        
+        for sheet_name, sheet_df in df.items():
+            text_parts.append(f"\n[Sheet: {sheet_name}]")
+            
+            # Convert sheet to string with proper formatting
+            sheet_text = sheet_df.to_string(index=False)
+            if sheet_text.strip():
+                text_parts.append(sheet_text)
+        
+        return '\n\n'.join(text_parts)
+        
+    except Exception as e:
+        logger.error(f"Error reading Excel file with pandas: {str(e)}")
+        raise ProcessingError(
+            status_code=500,
+            detail=f"Failed to extract text from Excel file: {str(e)}"
+        )
+
+def extract_text_from_csv(csv_path: str) -> str:
+    """Extract text from CSV document"""
+    logger.info(f"Extracting text from CSV document: {csv_path}")
+    try:
+        # Try reading with pandas
+        df = pd.read_csv(csv_path)
+        
+        # Convert to string with proper formatting
+        text = df.to_string(index=False)
+        return text if text.strip() else "No content found in CSV file"
+        
+    except Exception as e:
+        logger.error(f"Error reading CSV file with pandas: {str(e)}")
+        raise ProcessingError(
+            status_code=500,
+            detail=f"Failed to extract text from CSV file: {str(e)}"
+        )
+
+
 def convert_pdf_to_text(pdf_path: str, output_path: str, pages: List[int] = None):
     """Extract text from PDF"""
     try:
