@@ -1,0 +1,412 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Parameters:
+  BucketName:
+    Type: String
+    Description: Name of the S3 bucket for storing media files
+Resources:
+  MediaProcessorApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: prod
+      AccessLogSetting:
+        DestinationArn:
+          Fn::GetAtt:
+          - ApiGatewayLogGroup
+          - Arn
+        Format: '{ "requestId":"$context.requestId", "ip": "$context.identity.sourceIp",
+          "requestTime":"$context.requestTime", "httpMethod":"$context.httpMethod",
+          "routeKey":"$context.routeKey", "status":"$context.status", "protocol":"$context.protocol",
+          "responseLength":"$context.responseLength", "integrationError":"$context.integration.error"
+          }'
+      MethodSettings:
+      - ResourcePath: /*
+        HttpMethod: '*'
+        LoggingLevel: INFO
+      Cors:
+        AllowMethods: '''POST,GET'''
+        AllowHeaders: '''*'''
+        AllowOrigin: '''*'''
+      BinaryMediaTypes:
+      - '*/*'
+      OpenApiVersion: 3.0.1
+      DefinitionBody:
+        openapi: 3.0.1
+        info:
+          title: Media Processor API
+          version: '1.0'
+        paths:
+          /image/{proxy+}:
+            get:
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri:
+                  Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ImageProcessorFunction.Arn}/invocations
+                contentHandling: CONVERT_TO_BINARY
+                passthroughBehavior: when_no_match
+                timeoutInMillis: 29000
+          /doc/{proxy+}:
+            post:
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri:
+                  Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentProcessorFunction.Arn}/invocations
+                contentHandling: CONVERT_TO_BINARY
+                passthroughBehavior: when_no_match
+                timeoutInMillis: 29000
+          /task/{task_id}:
+            get:
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri:
+                  Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${TaskProcessorFunction.Arn}/invocations
+                contentHandling: CONVERT_TO_BINARY
+                passthroughBehavior: when_no_match
+                timeoutInMillis: 29000
+          /video/{proxy+}:
+            get:
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri:
+                  Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${VideoProcessorFunction.Arn}/invocations
+                contentHandling: CONVERT_TO_BINARY
+                passthroughBehavior: when_no_match
+                timeoutInMillis: 29000
+          /text/{proxy+}:
+            get:
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri:
+                  Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentProcessorFunction.Arn}/invocations
+                contentHandling: CONVERT_TO_BINARY
+                passthroughBehavior: when_no_match
+                timeoutInMillis: 29000
+          /async-doc/{proxy+}:
+            post:
+              x-amazon-apigateway-integration:
+                type: aws
+                httpMethod: POST
+                uri:
+                  Fn::Sub: arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentProcessorFunction.Arn}/invocations
+                contentHandling: CONVERT_TO_TEXT
+                requestParameters:
+                  integration.request.header.X-Amz-Invocation-Type: '''Event'''
+                  integration.request.path.proxy: method.request.path.proxy
+                requestTemplates:
+                  application/json: "#set($proxy = $input.params().get('path').get('proxy'))\n\
+                    #set($operations = $input.params().get('querystring').get('operations'))\n\
+                    \n{\n    \"TaskId\":\"$context.requestId\",\n    \"path\":\"$context.resourcePath\"\
+                    ,\n    \"pathParameters\": {\n        \"proxy\": \"$proxy\"\n\
+                    \    },\n    \"queryStringParameters\":{\n        \"operations\"\
+                    : \"$operations\"\n    }\n}\n"
+                passthroughBehavior: when_no_templates
+                responses:
+                  default:
+                    statusCode: '200'
+                    contentHandling: CONVERT_TO_TEXT
+                    responseTemplates:
+                      application/json: "{\n  \"TaskId\": \"$context.requestId\",\n\
+                        \  \"message\": \"Document processing task received and started\"\
+                        \n}\n"
+              responses:
+                '200':
+                  description: 200 response
+                  headers:
+                    Content-Type:
+                      schema:
+                        type: string
+                  content:
+                    application/json:
+                      schema:
+                        type: object
+                        properties:
+                          TaskId:
+                            type: string
+                          message:
+                            type: string
+                        required:
+                        - TaskId
+                        - message
+  ApiGatewayLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Sub: /aws/apigateway/${AWS::StackName}
+      RetentionInDays: 7
+  ApiGatewayCloudWatchRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: apigateway.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+      - Fn::Sub: arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
+      Policies:
+      - PolicyName: ApiGatewayLogsPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - logs:CreateLogGroup
+            - logs:CreateLogStream
+            - logs:DescribeLogGroups
+            - logs:DescribeLogStreams
+            - logs:PutLogEvents
+            - logs:GetLogEvents
+            - logs:FilterLogEvents
+            Resource:
+              Fn::GetAtt:
+              - ApiGatewayLogGroup
+              - Arn
+  ApiGatewayAccount:
+    Type: AWS::ApiGateway::Account
+    Properties:
+      CloudWatchRoleArn:
+        Fn::GetAtt:
+        - ApiGatewayCloudWatchRole
+        - Arn
+  ImageProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ImageProcessorFunction
+      Runtime: python3.9
+      Environment:
+        Variables:
+          S3_BUCKET_NAME:
+            Ref: BucketName
+      Handler: handler.handler
+      Timeout: 30
+      MemorySize: 512
+      Policies:
+      - S3CrudPolicy:
+          BucketName:
+            Ref: BucketName
+      Events:
+        GetImageAPI:
+          Type: Api
+          Properties:
+            Path: /image/{proxy}
+            Method: get
+            RestApiId:
+              Ref: MediaProcessorApi
+    Metadata:
+      SamResourceId: ImageProcessorFunction
+  VideoProcessorFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      DockerContext: /Users/jinhongl/Desktop/AWS_Local/Demos/serverless-media-processor/video-processor
+      DockerTag: latest
+      Dockerfile: Dockerfile
+      SamResourceId: VideoProcessorFunction
+    Properties:
+      PackageType: Image
+      Environment:
+        Variables:
+          S3_BUCKET_NAME:
+            Ref: BucketName
+      Timeout: 30
+      MemorySize: 2048
+      Policies:
+      - S3CrudPolicy:
+          BucketName:
+            Ref: BucketName
+      Events:
+        GetVideoAPI:
+          Type: Api
+          Properties:
+            Path: /video/{proxy}
+            Method: get
+            RestApiId:
+              Ref: MediaProcessorApi
+      ImageUri: videoprocessorfunction:latest
+  DocumentProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+      - Fn::Sub: arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+      - PolicyName: DocumentProcessorPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - s3:GetObject
+            - s3:PutObject
+            Resource:
+              Fn::Sub: arn:${AWS::Partition}:s3:::${BucketName}/*
+          - Effect: Allow
+            Action:
+            - s3:ListBucket
+            Resource:
+              Fn::Sub: arn:${AWS::Partition}:s3:::${BucketName}
+          - Effect: Allow
+            Action:
+            - dynamodb:PutItem
+            - dynamodb:GetItem
+            - dynamodb:UpdateItem
+            Resource:
+              Fn::GetAtt:
+              - TasksTable
+              - Arn
+          - Effect: Allow
+            Action:
+            - lambda:InvokeFunction
+            - lambda:InvokeAsync
+            Resource: '*'
+  TaskProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service: lambda.amazonaws.com
+          Action: sts:AssumeRole
+      ManagedPolicyArns:
+      - Fn::Sub: arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+      - PolicyName: TaskProcessorPolicy
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+          - Effect: Allow
+            Action:
+            - dynamodb:GetItem
+            Resource:
+              Fn::GetAtt:
+              - TasksTable
+              - Arn
+  TaskProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: TaskProcessorFunction
+      Runtime: python3.9
+      Role:
+        Fn::GetAtt:
+        - TaskProcessorRole
+        - Arn
+      Environment:
+        Variables:
+          DDB_TABLE_NAME:
+            Ref: TasksTable
+      Handler: handler.handler
+      Timeout: 30
+      MemorySize: 256
+      Events:
+        GetTaskAPI:
+          Type: Api
+          Properties:
+            Path: /task/{task_id}
+            Method: get
+            RestApiId:
+              Ref: MediaProcessorApi
+    Metadata:
+      SamResourceId: TaskProcessorFunction
+  DocumentProcessorFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      DockerContext: /Users/jinhongl/Desktop/AWS_Local/Demos/serverless-media-processor/document-processor
+      DockerTag: latest
+      Dockerfile: Dockerfile
+      SamResourceId: DocumentProcessorFunction
+    Properties:
+      PackageType: Image
+      Role:
+        Fn::GetAtt:
+        - DocumentProcessorRole
+        - Arn
+      Environment:
+        Variables:
+          S3_BUCKET_NAME:
+            Ref: BucketName
+          DDB_TABLE_NAME:
+            Ref: TasksTable
+      Timeout: 60
+      MemorySize: 1024
+      Events:
+        ProcessAPI:
+          Type: Api
+          Properties:
+            Path: /doc/{proxy+}
+            Method: post
+            RestApiId:
+              Ref: MediaProcessorApi
+        TextExtractionAPI:
+          Type: Api
+          Properties:
+            Path: /text/{proxy+}
+            Method: get
+            RestApiId:
+              Ref: MediaProcessorApi
+        AsyncDocAPI:
+          Type: Api
+          Properties:
+            Path: /async-doc/{proxy+}
+            Method: post
+            RestApiId:
+              Ref: MediaProcessorApi
+      ImageUri: documentprocessorfunction:latest
+  TasksTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName:
+        Fn::Sub: ${AWS::StackName}-tasks
+      AttributeDefinitions:
+      - AttributeName: TaskId
+        AttributeType: S
+      KeySchema:
+      - AttributeName: TaskId
+        KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+Outputs:
+  ApiEndpoint:
+    Description: API Gateway endpoint URL
+    Value:
+      Fn::Sub: https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod
+  ImageEndpoint:
+    Description: Image processing endpoint
+    Value:
+      Fn::Sub: https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/image/{key}?operations=resize,w_1000/watermark,text_54mI5p2D5omA5pyJ/format,jpg
+  DocumentEndpoint:
+    Description: Document processing endpoint
+    Value:
+      Fn::Sub: https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/doc/{object_key}?operations=convert,target_png,source_docx
+  TaskEndpoint:
+    Description: Task status endpoint
+    Value:
+      Fn::Sub: https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/task/{task_id}
+  VideoEndpoint:
+    Description: Video processing endpoint
+    Value:
+      Fn::Sub: https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/video/{key}?operations=snapshot,t_5000,f_jpg,w_1280,h_720
+  TextExtractionEndpoint:
+    Description: Text extraction endpoint
+    Value:
+      Fn::Sub: https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/text/{object_key}?operations=extract
+  AsyncDocEndpoint:
+    Description: Async document processing endpoint
+    Value:
+      Fn::Sub: https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/async-doc/{object_key}?operations=convert,target_png,source_docx
+  TasksTableName:
+    Description: Name of the DynamoDB table for task tracking
+    Value:
+      Ref: TasksTable

@@ -11,6 +11,13 @@ Resources:
     Type: AWS::Serverless::Api
     Properties:
       StageName: prod
+      AccessLogSetting:
+        DestinationArn: !GetAtt ApiGatewayLogGroup.Arn
+        Format: '{ "requestId":"$context.requestId", "ip": "$context.identity.sourceIp", "requestTime":"$context.requestTime", "httpMethod":"$context.httpMethod", "routeKey":"$context.routeKey", "status":"$context.status", "protocol":"$context.protocol", "responseLength":"$context.responseLength", "integrationError":"$context.integration.error" }'
+      MethodSettings:
+        - ResourcePath: "/*"
+          HttpMethod: "*"
+          LoggingLevel: INFO
       Cors:
         AllowMethods: "'POST,GET'"
         AllowHeaders: "'*'"
@@ -20,6 +27,9 @@ Resources:
       OpenApiVersion: '3.0.1'
       DefinitionBody:
         openapi: '3.0.1'
+        info:
+          title: Media Processor API
+          version: '1.0'
         paths:
           /image/{proxy+}:
             get:
@@ -66,6 +76,100 @@ Resources:
                 contentHandling: CONVERT_TO_BINARY
                 passthroughBehavior: when_no_match
                 timeoutInMillis: 29000
+          /async-doc/{proxy+}:
+            post:
+              x-amazon-apigateway-integration:
+                type: aws
+                httpMethod: POST
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentProcessorFunction.Arn}/invocations
+                contentHandling: CONVERT_TO_TEXT
+                requestParameters:
+                  integration.request.header.X-Amz-Invocation-Type: "'Event'"
+                  integration.request.path.proxy: method.request.path.proxy
+                requestTemplates:
+                  application/json: |
+                    #set($proxy = $input.params().get('path').get('proxy'))
+                    #set($operations = $input.params().get('querystring').get('operations'))
+                    
+                    {
+                        "TaskId":"$context.requestId",
+                        "path":"$context.resourcePath",
+                        "pathParameters": {
+                            "proxy": "$proxy"
+                        },
+                        "queryStringParameters":{
+                            "operations": "$operations"
+                        }
+                    }
+                passthroughBehavior: when_no_templates
+                responses:
+                  default:
+                    statusCode: "200"
+                    contentHandling: CONVERT_TO_TEXT
+                    responseTemplates:
+                      application/json: |
+                        {
+                          "TaskId": "$context.requestId",
+                          "message": "Document processing task received and started"
+                        }
+              responses:
+                "200":
+                  description: "200 response"
+                  headers:
+                    Content-Type:
+                      schema:
+                        type: string
+                  content:
+                    application/json:
+                      schema:
+                        type: object
+                        properties:
+                          TaskId:
+                            type: string
+                          message:
+                            type: string
+                        required:
+                          - TaskId
+                          - message
+
+  ApiGatewayLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/apigateway/${AWS::StackName}"
+      RetentionInDays: 7
+
+  ApiGatewayCloudWatchRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: apigateway.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonAPIGatewayPushToCloudWatchLogs
+      Policies:
+        - PolicyName: ApiGatewayLogsPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:DescribeLogGroups
+                  - logs:DescribeLogStreams
+                  - logs:PutLogEvents
+                  - logs:GetLogEvents
+                  - logs:FilterLogEvents
+                Resource: !GetAtt ApiGatewayLogGroup.Arn
+
+  ApiGatewayAccount:
+    Type: AWS::ApiGateway::Account
+    Properties:
+      CloudWatchRoleArn: !GetAtt ApiGatewayCloudWatchRole.Arn
 
   ImageProcessorFunction:
     Type: AWS::Serverless::Function
@@ -221,6 +325,13 @@ Resources:
             Path: /text/{proxy+}
             Method: get
             RestApiId: !Ref MediaProcessorApi
+        AsyncDocAPI:
+          Type: Api
+          Properties:
+            Path: /async-doc/{proxy+}
+            Method: post
+            RestApiId: !Ref MediaProcessorApi
+
   TasksTable:
     Type: AWS::DynamoDB::Table
     Properties:
@@ -228,13 +339,9 @@ Resources:
       AttributeDefinitions:
         - AttributeName: TaskId
           AttributeType: S
-        # - AttributeName: TaskType
-        #   AttributeType: S
       KeySchema:
         - AttributeName: TaskId
           KeyType: HASH
-        # - AttributeName: TaskType
-        #   KeyType: RANGE
       BillingMode: PAY_PER_REQUEST
 
 Outputs:
@@ -256,6 +363,9 @@ Outputs:
   TextExtractionEndpoint:
     Description: Text extraction endpoint
     Value: !Sub "https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/text/{object_key}?operations=extract"
+  AsyncDocEndpoint:
+    Description: Async document processing endpoint
+    Value: !Sub "https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/async-doc/{object_key}?operations=convert,target_png,source_docx"
   TasksTableName:
     Description: Name of the DynamoDB table for task tracking
     Value: !Ref TasksTable

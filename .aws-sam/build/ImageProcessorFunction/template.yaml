@@ -1,0 +1,48 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+
+Parameters:
+  BucketName:
+    Type: String
+    Description: Name of the S3 bucket for storing media files
+
+Globals:
+  Function:
+    Runtime: python3.9
+    Timeout: 30
+    MemorySize: 512
+    Environment:
+      Variables:
+        S3_BUCKET_NAME: !Ref BucketName
+        AWS_REGION: !Ref AWS::Region
+
+Resources:
+  ImageProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: .
+      Handler: handler.handler
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref BucketName
+      Events:
+        ProcessAPI:
+          Type: Api
+          Properties:
+            Path: /
+            Method: get
+            RestApiId: !Ref ImageProcessorApi
+
+  ImageProcessorApi:
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: prod
+      Cors:
+        AllowMethods: "'GET'"
+        AllowHeaders: "'*'"
+        AllowOrigin: "'*'"
+
+Outputs:
+  ImageProcessorApi:
+    Description: API Gateway endpoint URL
+    Value: !Sub "https://${ImageProcessorApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/prod/process"

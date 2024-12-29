@@ -1,8 +1,10 @@
 import json
+import uuid
 from typing import Dict, Any
 from urllib.parse import unquote
 from doc_processor import process_document, get_task_status
 from text_extractor import TextExtractor
+
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Lambda handler for document processing"""
@@ -71,7 +73,12 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 }
             
             # Process document using doc_processor
-            response = process_document(object_key, operations_str)
+            if request_path.startswith('/async-doc/'):
+                task_id = event.get("TaskId", {})
+            else:
+                task_id = str(uuid.uuid4())
+            response = process_document(task_id, object_key, operations_str)
+
             return {
                 'statusCode': response.status_code,
                 'body': json.dumps(response.body, ensure_ascii=False)

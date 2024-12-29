@@ -1,5 +1,4 @@
 import os
-import uuid
 import tempfile
 import logging
 
@@ -140,7 +139,7 @@ def process_document_sync(task_id: str, object_key: str, s3_config: S3Config, s3
         update_task_status(task_id, task_type, TaskStatus.FAILED, error_msg)
         raise
 
-def process_document(object_key: str, operations: str = None):
+def process_document(task_id: str, object_key: str, operations: str = None):
     """
     Process document with specified operations
     
@@ -159,7 +158,6 @@ def process_document(object_key: str, operations: str = None):
         s3_client = get_s3_client()
         
         # Generate task ID
-        task_id = str(uuid.uuid4())
         logger.info(f"Starting document conversion task {task_id} for {object_key}")
         
         # Parse operations
@@ -267,7 +265,7 @@ def process_document(object_key: str, operations: str = None):
             status_code=202,
             body={
                 'task_id': task_id,
-                'status': TaskStatus.PROCESSING.value,
+                'status': TaskStatus.COMPLETED.value,
                 'task_type': conversion_task,
                 'source_key': object_key,
                 'target_key': output_key,
