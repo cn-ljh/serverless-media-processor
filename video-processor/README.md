@@ -96,7 +96,7 @@ GET /video/example.mp4?operations=snapshot,t_5000,f_jpg,w_1920,h_1080
 ## Notes
 
 ### Configuration
-- Function timeout: 30 seconds
+- Function timeout: 60 seconds
 - Memory allocation: 2048MB
 - Maximum video file size: 500MB
 - Maximum output dimensions: 1920x1080

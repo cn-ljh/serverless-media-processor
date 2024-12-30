@@ -183,7 +183,7 @@ Resources:
         Variables:
           S3_BUCKET_NAME: !Ref BucketName
           DDB_BWM_TABLE_NAME: !Ref BlindWatermarkTable
-      Timeout: 30
+      Timeout: 60
       MemorySize: 1024
       Policies:
         - S3CrudPolicy:
@@ -209,7 +209,7 @@ Resources:
       Environment:
         Variables:
           S3_BUCKET_NAME: !Ref BucketName
-      Timeout: 30
+      Timeout: 60
       MemorySize: 2048
       Policies:
         - S3CrudPolicy:
@@ -316,7 +316,7 @@ Resources:
           S3_BUCKET_NAME: !Ref BucketName
           DDB_TABLE_NAME: !Ref TasksTable
       Timeout: 60
-      MemorySize: 1024
+      MemorySize: 512
       Events:
         ProcessAPI:
           Type: Api

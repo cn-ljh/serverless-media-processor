@@ -199,7 +199,7 @@ GET /image/document.jpg?operations=resize,w_2000/blindwatermark,context_Q29weXJp
 
 ## Notes
 
-- The function has a timeout of 30 seconds
+- The function has a timeout of 60 seconds
 - Maximum memory allocation is 1024MB
 - Requires S3 bucket access for reading source images and writing processed results
 - Uses DynamoDB table for blind watermark operations
