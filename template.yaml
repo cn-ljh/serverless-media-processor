@@ -173,18 +173,23 @@ Resources:
 
   ImageProcessorFunction:
     Type: AWS::Serverless::Function
+    Metadata:
+      DockerTag: latest
+      DockerContext: image-processor
+      Dockerfile: Dockerfile
     Properties:
-      CodeUri: image-processor/
-      Runtime: python3.9
+      PackageType: Image
       Environment:
         Variables:
           S3_BUCKET_NAME: !Ref BucketName
-      Handler: handler.handler
+          DDB_BWM_TABLE_NAME: !Ref BlindWatermarkTable
       Timeout: 30
-      MemorySize: 512
+      MemorySize: 1024
       Policies:
         - S3CrudPolicy:
             BucketName: !Ref BucketName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref BlindWatermarkTable
       Events:
         GetImageAPI:
           Type: Api
@@ -287,8 +292,8 @@ Resources:
         Variables:
           DDB_TABLE_NAME: !Ref TasksTable
       Handler: handler.handler
-      Timeout: 30
-      MemorySize: 256
+      Timeout: 5
+      MemorySize: 128
       Events:
         GetTaskAPI:
           Type: Api
@@ -341,6 +346,18 @@ Resources:
           AttributeType: S
       KeySchema:
         - AttributeName: TaskId
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST
+
+  BlindWatermarkTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub ${AWS::StackName}-blindwatermark
+      AttributeDefinitions:
+        - AttributeName: WaterMakerContent
+          AttributeType: S
+      KeySchema:
+        - AttributeName: WaterMakerContent
           KeyType: HASH
       BillingMode: PAY_PER_REQUEST
 

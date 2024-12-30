@@ -14,15 +14,6 @@ export AWS_DEFAULT_REGION=cn-northwest-1
 
 echo "Starting deployment process in China Northwest (Ningxia) region..."
 
-# Install dependencies for image processor
-echo "Installing image processor dependencies..."
-cd image-processor
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-deactivate
-cd ..
-
 # Install dependencies for task processor
 echo "Installing task processor dependencies..."
 cd task-processor
@@ -34,7 +25,7 @@ cd ..
 
 # Get account ID for resource naming
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-STACK_NAME="media-processor"
+STACK_NAME="media-processor-bwm"
 
 # Create S3 bucket for SAM artifacts if it doesn't exist
 SAM_BUCKET="sam-artifacts-${ACCOUNT_ID}-${AWS_DEFAULT_REGION}"

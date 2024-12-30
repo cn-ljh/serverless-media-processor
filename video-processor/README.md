@@ -1,41 +1,125 @@
-# Video Processor
+# Video Processor API
 
-The Video Processor is a serverless component that handles video processing operations through AWS Lambda.
+This Lambda function provides video processing capabilities through API Gateway, allowing you to generate snapshots from video files stored in S3.
 
-## Features
+## API Endpoint
 
-- **Frame Extraction**: Ability to extract specific frames from videos
-- **Video Snapshots**: Generate thumbnail images from video content
-- **S3 Integration**: Works with videos stored in S3 buckets
-- **Format Support**: Handles common video formats
-
-## Components
-
-- `handler.py`: Main Lambda handler for processing video requests
-- `video_processor.py`: Core video processing logic
-- `video_snapshots.py`: Video frame extraction and thumbnail generation
-- `s3_operations.py`: S3 operations for file handling
-- `create_layer.sh`: Script for creating Lambda layers with required dependencies
-
-## Usage
-
-The processor accepts requests with the following parameters:
-- `object_key`: The S3 key of the video to process
-- `operations`: Video processing parameters
-
-Example operations:
 ```
-snapshot,time_00:00:10
-frame,timestamp_5
+GET /video/{key}
 ```
 
-## Response
+## Parameters
 
-The processor returns:
-- Base64 encoded processed frame/snapshot
-- Content-Type header indicating the image format
-- Error details if processing fails
+- `key`: (Required) The object key (path) of the video in S3 bucket
+- `operations`: (Required) Query parameter specifying the video operations to perform
 
-## Dependencies
+## Supported Operations
 
-The processor requires FFmpeg for video processing, which is included in the Lambda layer created by `create_layer.sh`.
+### Snapshot (`snapshot`)
+Takes a screenshot from the video at a specified timestamp.
+
+Parameters:
+- `t_<milliseconds>`: (Required) Timestamp to take snapshot from
+- `f_<format>`: (Required) Output format (jpg, png)
+- `w_<pixels>`: (Optional) Output width
+- `h_<pixels>`: (Optional) Output height
+
+Example:
+```
+# Take a snapshot at 5 seconds in JPG format
+GET /video/example.mp4?operations=snapshot,t_5000,f_jpg,w_1280,h_720
+```
+
+## Response Format
+
+### Success Response
+- Status Code: 200
+- Headers:
+  ```
+  Content-Type: image/[format]
+  Content-Disposition: attachment; filename="snapshot.[ext]"
+  ```
+- Body: Processed image binary
+
+### Error Response
+- Status Code: 400/500
+- Body:
+  ```json
+  {
+    "error": "Error message",
+    "details": {
+      "operation": "snapshot",
+      "timestamp": 5000,
+      "reason": "Invalid timestamp - video duration is 3000ms"
+    }
+  }
+  ```
+
+## Example Usage
+
+1. Basic Snapshot
+```
+GET /video/example.mp4?operations=snapshot,t_5000,f_jpg
+```
+
+2. High Resolution Snapshot
+```
+GET /video/example.mp4?operations=snapshot,t_5000,f_jpg,w_1920,h_1080
+```
+
+## Error Scenarios
+
+1. Invalid Timestamp
+```json
+{
+  "error": "Invalid timestamp",
+  "details": "Timestamp exceeds video duration"
+}
+```
+
+2. Invalid Dimensions
+```json
+{
+  "error": "Invalid dimensions",
+  "details": "Width or height exceeds maximum allowed (1920x1080)"
+}
+```
+
+3. Processing Error
+```json
+{
+  "error": "Processing failed",
+  "details": "Failed to decode video frame at 5000ms"
+}
+```
+
+## Notes
+
+### Configuration
+- Function timeout: 30 seconds
+- Memory allocation: 2048MB
+- Maximum video file size: 500MB
+- Maximum output dimensions: 1920x1080
+- Supported input formats: MP4, MOV, AVI, MKV
+- Supported output formats: JPG, PNG
+
+### Best Practices
+1. Video Processing:
+   - Use appropriate output dimensions for your use case
+   - Consider mobile device limitations
+   - Validate timestamps against video duration
+
+2. Error Handling:
+   - Implement retry logic for transient failures
+   - Handle timeout errors appropriately
+   - Validate input parameters before processing
+
+3. Performance:
+   - Keep snapshot requests reasonable
+   - Implement client-side caching
+   - Use appropriate quality settings
+
+### Limitations
+- Maximum video duration: 30 minutes
+- Maximum output resolution: 1920x1080
+- Maximum concurrent requests: 100/minute

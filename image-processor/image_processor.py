@@ -9,6 +9,9 @@ from image_watermark import add_watermark
 from image_format_converter import convert_format
 from image_auto_orient import auto_orient_image
 from image_quality import transform_quality
+from image_blindwatermark import add_blind_watermark
+from image_deblindwatermark import extract_blind_watermark
+import json
 
 # Configure logging
 logging.basicConfig(
@@ -203,6 +206,47 @@ def process_image(image_key: str, operations: str = None):
                         quality_params['Q'] = params['Q']
                     current_image_data = transform_quality(current_image_data, quality_params)
                 
+                elif operation == 'blindwatermark':
+                    # Decode base64-encoded watermark text
+                    encoded_text = params.get('context', 'UHJvdGVjdGVk')  # Default to base64('Protected')
+                    try:
+                        import base64
+                        watermark_text = base64.b64decode(encoded_text).decode('utf-8')
+                    except Exception as e:
+                        raise ProcessingError(
+                            status_code=400,
+                            detail=f"Invalid base64-encoded watermark text: {str(e)}"
+                        )
+                    
+                    # Validate block size
+                    block_size = params.get('block', 4)
+                    if block_size not in {4, 8, 16, 32}:
+                        raise ProcessingError(
+                            status_code=400,
+                            detail=f"Invalid block size: {block_size}. Must be one of: 4, 8, 16, 32"
+                        )
+                    
+                    watermark_params = {
+                        'text': watermark_text,
+                        'original_object_key': image_key,
+                        'password_wm': params.get('password_wm', 1234),
+                        'password_img': params.get('password_img', 1234),
+                        # block_shape must be one of: 4, 8, 16, 32
+                        'block_shape': (params.get('block', 4), params.get('block', 4)),
+                        'd1': params.get('d1', 100),
+                        'd2': params.get('d2', 60)
+                    }
+                    current_image_data, new_key = add_blind_watermark(current_image_data, **watermark_params)
+                    # Add the new S3 key to response headers
+                    headers = {
+                        "X-Amz-Meta-Watermarked-Key": new_key
+                    }
+                
+                elif operation == 'deblindwatermark':
+                    result = extract_blind_watermark(current_image_data)
+                    current_image_data = json.dumps(result).encode('utf-8')
+                    content_type = 'application/json'
+                
                 else:
                     raise ProcessingError(
                         status_code=400,
@@ -221,14 +265,19 @@ def process_image(image_key: str, operations: str = None):
         cache_control = "public, max-age=3600"
 
         logger.info(f"Completed processing image: {image_key}")
-        # Return the processed image with caching headers
+        # Return the processed image with caching headers and any operation-specific headers
+        response_headers = {
+            "Content-Type": content_type,
+            "Cache-Control": cache_control,
+            "ETag": etag
+        }
+        # Add operation-specific headers if they exist
+        if 'headers' in locals():
+            response_headers.update(headers)
+            
         return ImageResponse(
             body=current_image_data,
-            headers={
-                "Content-Type": content_type,
-                "Cache-Control": cache_control,
-                "ETag": etag
-            }
+            headers=response_headers
         )
 
     except Exception as e:
