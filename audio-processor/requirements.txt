@@ -1,0 +1,11 @@
+# AWS SDK for Python
+boto3>=1.26.0
+
+# Logging and utilities
+python-dateutil>=2.8.2
+
+# Audio processing
+pydub>=0.25.1  # Optional: For additional audio processing capabilities if needed
+
+# Type hints
+typing-extensions>=4.0.0  # For Python 3.7+ type hint features

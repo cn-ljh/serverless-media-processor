@@ -7,6 +7,32 @@ Parameters:
     Description: Name of the S3 bucket for storing media files
 
 Resources:
+  AudioProcessorFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      DockerTag: latest
+      DockerContext: audio-processor
+      Dockerfile: Dockerfile
+    Properties:
+      PackageType: Image
+      ImageConfig:
+        Command: ["handler.lambda_handler"]
+      MemorySize: 1024
+      Timeout: 300
+      Environment:
+        Variables:
+          S3_BUCKET_NAME: !Ref BucketName
+      Policies:
+        - S3CrudPolicy:
+            BucketName: !Ref BucketName
+      Events:
+        AudioApi:
+          Type: Api
+          Properties:
+            Path: /audio/{proxy+}
+            Method: get
+            RestApiId: !Ref MediaProcessorApi
+
   MediaProcessorApi:
     Type: AWS::Serverless::Api
     Properties:
@@ -73,6 +99,15 @@ Resources:
                 type: aws_proxy
                 httpMethod: POST
                 uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${DocumentProcessorFunction.Arn}/invocations
+                contentHandling: CONVERT_TO_BINARY
+                passthroughBehavior: when_no_match
+                timeoutInMillis: 29000
+          /audio/{proxy+}:
+            get:
+              x-amazon-apigateway-integration:
+                type: aws_proxy
+                httpMethod: POST
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${AudioProcessorFunction.Arn}/invocations
                 contentHandling: CONVERT_TO_BINARY
                 passthroughBehavior: when_no_match
                 timeoutInMillis: 29000
@@ -376,13 +411,13 @@ Outputs:
     Value: !Sub "https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/task/{task_id}"
   VideoEndpoint:
     Description: Video processing endpoint
-    Value: !Sub "https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/video/{key}?operations=snapshot,t_5000,f_jpg,w_1280,h_720"
-  TextExtractionEndpoint:
-    Description: Text extraction endpoint
-    Value: !Sub "https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/text/{object_key}?operations=extract"
+    Value: !Sub "https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/video/{key}?operations=convert,f_mp4,ab_128k"
   AsyncDocEndpoint:
     Description: Async document processing endpoint
     Value: !Sub "https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/async-doc/{object_key}?operations=convert,target_png,source_docx"
+  AudioEndpoint:
+    Description: Audio processing endpoint
+    Value: !Sub "https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/audio/{key}?operations=convert,ss_10000,t_60000,f_aac,ab_96000"
   TasksTableName:
     Description: Name of the DynamoDB table for task tracking
     Value: !Ref TasksTable

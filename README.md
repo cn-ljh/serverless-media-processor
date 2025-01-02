@@ -79,28 +79,28 @@ After deployment, you'll receive API endpoints for different media processing op
 curl "https://<api-id>.execute-api.<region>.amazonaws.com.cn/prod/image/example.jpg?operations=resize,w_800"
 
 # Add a watermark
-curl "https://<api-id>.execute-api.<region>.amazonaws.com/prod/image/example.jpg?operations=watermark,text_Copyright"
+curl "https://<api-id>.execute-api.<region>.amazonaws.com.cn/prod/image/example.jpg?operations=watermark,text_Copyright"
 ```
 
 ### 2. Document Processing
 ```bash
 # Convert DOCX to PDF
-curl -X POST "https://<api-id>.execute-api.<region>.amazonaws.com/prod/doc/document.docx?operations=convert,target_pdf,source_docx"
+curl -X POST "https://<api-id>.execute-api.<region>.amazonaws.com.cn/prod/doc/document.docx?operations=convert,target_pdf,source_docx"
 
 # Extract text from PDF
-curl "https://<api-id>.execute-api.<region>.amazonaws.com/prod/text/document.pdf?operations=extract"
+curl "https://<api-id>.execute-api.<region>.amazonaws.com.cn/prod/text/document.pdf?operations=extract"
 ```
 
 ### 3. Video Processing
 ```bash
 # Take a snapshot at 5 seconds
-curl "https://<api-id>.execute-api.<region>.amazonaws.com/prod/video/video.mp4?operations=snapshot,t_5000,f_jpg"
+curl "https://<api-id>.execute-api.<region>.amazonaws.com.cn/prod/video/video.mp4?operations=snapshot,t_5000,f_jpg"
 ```
 
 ### 4. Async Task Status
 ```bash
 # Check task status
-curl "https://<api-id>.execute-api.<region>.amazonaws.com/prod/task/<task-id>"
+curl "https://<api-id>.execute-api.<region>.amazonaws.com.cn/prod/task/<task-id>"
 ```
 
 ## Detailed Documentation
