@@ -23,7 +23,8 @@ def extract_blind_watermark(image_data: bytes) -> dict:
     try:
         # Set up file paths
         input_path = f"/tmp/input_image_extract.jpg"
-        
+        normalized_path = f"/tmp/normalized_{os.path.basename(input_path)}"
+
         # Save input bytes to file
         with open(input_path, 'wb') as f:
             f.write(image_data)
@@ -31,13 +32,13 @@ def extract_blind_watermark(image_data: bytes) -> dict:
         # Resize image to match watermarking dimensions
         with Image.open(input_path) as img:
             # Calculate height to maintain aspect ratio
-            aspect_ratio = 1 #img.height / img.width
-            FIXED_HEIGHT = int(FIXED_WIDTH * aspect_ratio)
+            # aspect_ratio = 1 #img.height / img.width
+            # FIXED_HEIGHT = int(FIXED_WIDTH * aspect_ratio)
             
-            # Resize image
-            resized_img = img.resize((FIXED_WIDTH, FIXED_HEIGHT), Image.Resampling.LANCZOS)
-            normalized_path = f"/tmp/normalized_{os.path.basename(input_path)}"
-            resized_img.save(normalized_path, quality=100)
+            # # Resize image
+            # resized_img = img.resize((FIXED_WIDTH, FIXED_HEIGHT), Image.Resampling.LANCZOS)
+            # resized_img.save(normalized_path, quality=100)
+            img.save(normalized_path, quality=100)
 
         # Get all watermark records from DynamoDB
         watermark_records = scan_watermark_records()

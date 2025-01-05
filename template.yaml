@@ -218,8 +218,8 @@ Resources:
         Variables:
           S3_BUCKET_NAME: !Ref BucketName
           DDB_BWM_TABLE_NAME: !Ref BlindWatermarkTable
-      Timeout: 60
-      MemorySize: 1024
+      Timeout: 600
+      MemorySize: 2048
       Policies:
         - S3CrudPolicy:
             BucketName: !Ref BucketName

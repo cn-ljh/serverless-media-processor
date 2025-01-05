@@ -40,16 +40,17 @@ def add_blind_watermark(image_data: bytes, original_object_key: str, text: str =
         
         # Resize image to fixed size before watermarking
         from PIL import Image
-        FIXED_WIDTH = 600  # Fixed width for watermarking
+        # FIXED_WIDTH = 600  # Fixed width for watermarking
         
         with Image.open(input_path) as img:
             # Calculate height to maintain aspect ratio
-            aspect_ratio = 1 #img.height / img.width
-            FIXED_HEIGHT = int(FIXED_WIDTH * aspect_ratio)
+            # aspect_ratio = img.height / img.width
+            # FIXED_HEIGHT = int(FIXED_WIDTH * aspect_ratio)
             
-            # Resize image
-            resized_img = img.resize((FIXED_WIDTH, FIXED_HEIGHT), Image.Resampling.LANCZOS)
-            resized_img.save(normalized_path, quality=95)
+            # # Resize image
+            # resized_img = img.resize((FIXED_WIDTH, FIXED_HEIGHT), Image.Resampling.LANCZOS)
+            # resized_img.save(normalized_path, quality=95)
+            img.save(normalized_path, quality=100)
         
         # Apply watermark with more robust parameters
         bwm = WaterMark(password_wm=password_wm, password_img=password_img, block_shape=block_shape)

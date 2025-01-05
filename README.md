@@ -22,6 +22,10 @@ API Gateway
     │   - Handles video frame extraction
     │   - Uses S3 for storage
     │
+    ├── /audio/* → Audio Processor Lambda
+    │   - Handles audio format conversion
+    │   - Uses S3 for storage
+    │
     └── /task/* → Task Processor Lambda
         - Tracks async operation status
         - Uses DynamoDB for task tracking
@@ -33,6 +37,7 @@ Components:
   - Image Processor: Image manipulation (resize, crop, watermark, etc.)
   - Document Processor: Document conversion and text extraction
   - Video Processor: Video frame extraction and snapshot generation
+  - Audio Processor: Audio format conversion and processing
   - Task Processor: Asynchronous task status tracking
 - S3: Storage for source and processed media files
 - DynamoDB: Task status tracking for asynchronous operations
@@ -91,13 +96,22 @@ curl -X POST "https://<api-id>.execute-api.<region>.amazonaws.com.cn/prod/doc/do
 curl "https://<api-id>.execute-api.<region>.amazonaws.com.cn/prod/text/document.pdf?operations=extract"
 ```
 
-### 3. Video Processing
+### 3. Audio Processing
+```bash
+# Convert audio format from MP3 to WAV
+curl "https://<api-id>.execute-api.<region>.amazonaws.com.cn/prod/audio/audio.mp3?operations=convert,target_wav"
+
+# Convert audio format from WAV to MP3
+curl "https://<api-id>.execute-api.<region>.amazonaws.com.cn/prod/audio/audio.wav?operations=convert,target_mp3"
+```
+
+### 4. Video Processing
 ```bash
 # Take a snapshot at 5 seconds
 curl "https://<api-id>.execute-api.<region>.amazonaws.com.cn/prod/video/video.mp4?operations=snapshot,t_5000,f_jpg"
 ```
 
-### 4. Async Task Status
+### 5. Async Task Status
 ```bash
 # Check task status
 curl "https://<api-id>.execute-api.<region>.amazonaws.com.cn/prod/task/<task-id>"
@@ -110,6 +124,7 @@ Each processor has its own detailed documentation:
 - [Image Processor](image-processor/README.md) - Image manipulation operations
 - [Document Processor](document-processor/README.md) - Document conversion and text extraction
 - [Video Processor](video-processor/README.md) - Video frame extraction
+- [Audio Processor](audio-processor/README.md) - Audio format conversion
 - [Task Processor](task-processor/README.md) - Async task status tracking
 
 ## Configuration
@@ -167,11 +182,13 @@ sam deploy
 - Maximum file sizes:
   - Images: 10MB
   - Documents: 100MB (sync), unlimited (async)
+  - Audio: 100MB
   - Videos: 500MB
 - Processing timeouts:
   - Image Processor: 30 seconds
   - Document Processor: 60 seconds
   - Video Processor: 30 seconds
+  - Audio Processor: 30 seconds
   - Task Processor: 5 seconds
 
 ## Security
@@ -187,4 +204,5 @@ For detailed information about specific operations, refer to the README.md files
 - Image operations: [image-processor/README.md](image-processor/README.md)
 - Document operations: [document-processor/README.md](document-processor/README.md)
 - Video operations: [video-processor/README.md](video-processor/README.md)
+- Audio operations: [audio-processor/README.md](audio-processor/README.md)
 - Task status: [task-processor/README.md](task-processor/README.md)
