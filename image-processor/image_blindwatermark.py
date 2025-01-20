@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 def add_blind_watermark(image_data: bytes, original_object_key: str, text: str = 'Protected', 
                        password_wm: int = 1234, password_img: int = 1234, 
-                       block_shape: tuple = (4, 4), d1: int = 100, d2: int = 60) -> tuple[bytes, str]:
+                       block_shape: tuple = (4, 4), d1: int = 30, d2: int = 20) -> tuple[bytes, str]:
     """
     Add blind watermark to image.
     

@@ -4,7 +4,7 @@ import logging
 
 from s3_operations import (
     S3Config, get_s3_client, download_object_from_s3, 
-    upload_object_to_s3, get_full_s3_key
+    upload_object_to_s3, get_full_s3_key, create_presigned_url
 )
 from doc_converter import (
     SourceFormat, TargetFormat, convert_document, parse_pages_param
@@ -70,6 +70,7 @@ def process_document_sync(task_id: str, object_key: str, s3_config: S3Config, s3
     """
     Synchronous document processing function
     """
+    task_type = "doc/convert"
     # Download source document
     try:
         full_key = get_full_s3_key(object_key)
@@ -127,11 +128,16 @@ def process_document_sync(task_id: str, object_key: str, s3_config: S3Config, s3
                     output_s3_key,
                     f.read()
                 )
-        task_type = "doc/convert"
         # Update task status
         logger.info(f"Task {task_id}: Conversion completed successfully")
         update_task_status(task_id, task_type, TaskStatus.COMPLETED)
         
+    except (IOError, OSError) as e:
+        # Handle file system related errors
+        error_msg = f"File operation error: {str(e)}"
+        logger.error(f"Task {task_id}: {error_msg}")
+        update_task_status(task_id, task_type, TaskStatus.FAILED, error_msg)
+        raise ProcessingError(status_code=500, detail=error_msg)
     except Exception as e:
         # Update task status with error
         error_msg = str(e)
@@ -240,13 +246,15 @@ def process_document(task_id: str, object_key: str, operations: str = None):
         conversion_task = "doc/convert"
 
         logger.info(f"Task {task_id}: Creating {conversion_task} record with params: {conversion_params}")
+        
         create_task_record(
             task_id=task_id,
             source_key=object_key,
             target_key=output_key,
             task_type=conversion_task,
-            conversion_params=conversion_params
+            conversion_params=conversion_params,
         )
+
         
         # Process document synchronously
         process_document_sync(
@@ -261,6 +269,9 @@ def process_document(task_id: str, object_key: str, operations: str = None):
             pages=pages
         )
         
+        # Create presigned URL only after successful processing
+        presigned_url = create_presigned_url(s3_client, target_bucket, output_key)
+        
         return Response(
             status_code=202,
             body={
@@ -270,12 +281,23 @@ def process_document(task_id: str, object_key: str, operations: str = None):
                 'source_key': object_key,
                 'target_key': output_key,
                 'source_bucket': s3_config.bucket_name,
-                'target_bucket': target_bucket
+                'target_bucket': target_bucket,
+                'target_object_url': presigned_url
             }
         )
             
+    except (IOError, OSError) as e:
+        error_msg = f"File operation error: {str(e)}"
+        logger.error(f"Task {task_id}: {error_msg}")
+        raise ProcessingError(status_code=500, detail=error_msg)
+    except ValueError as e:
+        error_msg = f"Invalid parameter value: {str(e)}"
+        logger.error(f"Task {task_id}: {error_msg}")
+        raise ProcessingError(status_code=400, detail=error_msg)
     except Exception as e:
-        raise ProcessingError(status_code=500, detail=str(e))
+        error_msg = f"Unexpected error: {str(e)}"
+        logger.error(f"Task {task_id}: {error_msg}")
+        raise ProcessingError(status_code=500, detail=error_msg)
 
 def get_task_status(task_id: str, task_type: str):
     """
@@ -283,6 +305,7 @@ def get_task_status(task_id: str, task_type: str):
     
     Args:
         task_id: Task identifier
+        task_type: Type of task to retrieve (e.g., "doc/convert")
         
     Returns:
         Response object with task status details
@@ -296,12 +319,15 @@ def get_task_status(task_id: str, task_type: str):
         task = get_ddb_task_status(task_id, task_type)
         if not task:
             raise ProcessingError(status_code=404, detail=f"Task {task_id} not found")
-            
+        
+        presigned_url = create_presigned_url(task['TargetBucket']['S'], task['TargetKey']['S'])
+
         return Response(
             status_code=200,
             body={
                 'task_id': task_id,
                 'task_type': task_type,
+                'target_object_url': presigned_url,
                 'status': task['Status']['S'],
                 'source_key': task['SourceKey']['S'],
                 'target_key': task['TargetKey']['S'],

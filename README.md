@@ -17,6 +17,11 @@ API Gateway
     │   - Handles document conversion, text extraction
     │   - Uses S3 for storage
     │   - Uses DynamoDB for async tasks
+    │    
+    ├── /async-doc/* → Async Document Processor Lambda
+    │   - Handles document conversion, text extraction
+    │   - Uses S3 for storage
+    │   - Uses DynamoDB for async tasks
     │
     ├── /video/* → Video Processor Lambda
     │   - Handles video frame extraction

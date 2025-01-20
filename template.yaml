@@ -37,6 +37,8 @@ Resources:
     Type: AWS::Serverless::Api
     Properties:
       StageName: prod
+      # Auth:
+      #   DefaultAuthorizer: AWS_IAM
       AccessLogSetting:
         DestinationArn: !GetAtt ApiGatewayLogGroup.Arn
         Format: '{ "requestId":"$context.requestId", "ip": "$context.identity.sourceIp", "requestTime":"$context.requestTime", "httpMethod":"$context.httpMethod", "routeKey":"$context.routeKey", "status":"$context.status", "protocol":"$context.protocol", "responseLength":"$context.responseLength", "integrationError":"$context.integration.error" }'
@@ -56,9 +58,18 @@ Resources:
         info:
           title: Media Processor API
           version: '1.0'
+        # components:
+          # securitySchemes:
+          #   sigv4:
+          #     type: apiKey
+          #     name: Authorization
+          #     in: header
+          #     x-amazon-apigateway-authtype: awsSigv4
         paths:
           /image/{proxy+}:
             get:
+              # security:
+              #   - sigv4: []
               x-amazon-apigateway-integration:
                 type: aws_proxy
                 httpMethod: POST
@@ -68,6 +79,8 @@ Resources:
                 timeoutInMillis: 29000
           /doc/{proxy+}:
             post:
+              # security:
+              #   - sigv4: []
               x-amazon-apigateway-integration:
                 type: aws_proxy
                 httpMethod: POST
@@ -77,6 +90,8 @@ Resources:
                 timeoutInMillis: 29000
           /task/{task_id}:
             get:
+              # security:
+              #   - sigv4: []
               x-amazon-apigateway-integration:
                 type: aws_proxy
                 httpMethod: POST
@@ -86,6 +101,8 @@ Resources:
                 timeoutInMillis: 29000
           /video/{proxy+}:
             get:
+              # security:
+              #   - sigv4: []
               x-amazon-apigateway-integration:
                 type: aws_proxy
                 httpMethod: POST
@@ -95,6 +112,8 @@ Resources:
                 timeoutInMillis: 29000
           /text/{proxy+}:
             get:
+              # security:
+              #   - sigv4: []
               x-amazon-apigateway-integration:
                 type: aws_proxy
                 httpMethod: POST
@@ -104,6 +123,8 @@ Resources:
                 timeoutInMillis: 29000
           /audio/{proxy+}:
             get:
+              # security:
+              #   - sigv4: []
               x-amazon-apigateway-integration:
                 type: aws_proxy
                 httpMethod: POST
@@ -113,6 +134,8 @@ Resources:
                 timeoutInMillis: 29000
           /async-doc/{proxy+}:
             post:
+              # security:
+              #   - sigv4: []
               x-amazon-apigateway-integration:
                 type: aws
                 httpMethod: POST
@@ -316,6 +339,15 @@ Resources:
                 Action:
                   - dynamodb:GetItem
                 Resource: !GetAtt TasksTable.Arn
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub arn:${AWS::Partition}:s3:::${BucketName}/*
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !Sub arn:${AWS::Partition}:s3:::${BucketName}
 
   TaskProcessorFunction:
     Type: AWS::Serverless::Function
@@ -326,6 +358,7 @@ Resources:
       Environment:
         Variables:
           DDB_TABLE_NAME: !Ref TasksTable
+          S3_BUCKET_NAME: !Ref BucketName
       Handler: handler.handler
       Timeout: 5
       MemorySize: 128
@@ -350,8 +383,8 @@ Resources:
         Variables:
           S3_BUCKET_NAME: !Ref BucketName
           DDB_TABLE_NAME: !Ref TasksTable
-      Timeout: 60
-      MemorySize: 512
+      Timeout: 300
+      MemorySize: 1024
       Events:
         ProcessAPI:
           Type: Api
