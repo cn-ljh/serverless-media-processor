@@ -4,8 +4,14 @@ This Lambda function provides comprehensive image processing capabilities throug
 
 ## API Endpoint
 
+For operations equals resize/crop/format/auto-orient/quality, suggest using Sync API.
 ```
-GET /image/{key}
+GET /image/{key}?operations={operation}
+```
+
+For operations equals watermark/blindwatermark/deblindwatermark, suggest using Async API:
+```
+GET /async-image/{key}?operations={operation}
 ```
 
 ## Parameters
@@ -66,8 +72,51 @@ crop,w_300,h_200,g_ne
 crop,w_400,h_300,x_50
 ```
 
-### 3. Watermark (`watermark`)
+### 3. Format Conversion (`format`)
+Converts image to different format.
+
+Parameters:
+- `f_<format>`: Target format (jpg, png, webp, etc.)
+- `q_<quality>`: JPEG/WebP quality 1-100 (default: 85)
+
+Examples:
+```
+# Convert to PNG
+format,png
+
+# Convert to JPEG with 90% quality
+format,f_jpg,q_90
+
+# Convert to WebP with 80% quality
+format,f_webp,q_80
+```
+
+### 4. Auto Orient (`auto-orient`)
+Automatically orients image based on EXIF data.
+
+Parameters:
+- `<0/1>`: Enable/disable auto orientation
+
+Example:
+```
+auto-orient,1
+```
+
+### 5. Quality Transformation (`quality`)
+Adjusts image quality.
+
+Parameters:
+- `q_<quality>`: JPEG quality 1-100
+- `Q_<quality>`: WebP quality 1-100
+
+Example:
+```
+quality,q_85
+```
+
+### 6. Watermark (`watermark`)
 Adds text or image watermark.
+This API also support async invoke.
 
 Parameters:
 - `text_<text>`: Watermark text (URL-encoded)
@@ -95,62 +144,38 @@ watermark,text_Q29weXJpZ2h0,t_50,g_c,size_60
 watermark,text_Q29weXJpZ2h0,rotate_45,shadow_1,color_666666
 ```
 
-### 4. Format Conversion (`format`)
-Converts image to different format.
-
-Parameters:
-- `f_<format>`: Target format (jpg, png, webp, etc.)
-- `q_<quality>`: JPEG/WebP quality 1-100 (default: 85)
-
-Examples:
-```
-# Convert to PNG
-format,png
-
-# Convert to JPEG with 90% quality
-format,f_jpg,q_90
-
-# Convert to WebP with 80% quality
-format,f_webp,q_80
-```
-
-### 5. Auto Orient (`auto-orient`)
-Automatically orients image based on EXIF data.
-
-Parameters:
-- `<0/1>`: Enable/disable auto orientation
-
-Example:
-```
-auto-orient,1
-```
-
-### 6. Quality Transformation (`quality`)
-Adjusts image quality.
-
-Parameters:
-- `q_<quality>`: JPEG quality 1-100
-- `Q_<quality>`: WebP quality 1-100
-
-Example:
-```
-quality,q_85
-```
-
 ### 7. Blind Watermark (`blindwatermark`)
 Adds invisible watermark for copyright protection.
 
 Parameters:
-- `content_<base64>`: Base64 encoded watermark text
-- `block_<size>`: Block size (4, 8, 16, or 32)
-- `password_wm_<number>`: Watermark password (default: 1234)
-- `password_img_<number>`: Image password (default: 1234)
-- `d1_<number>`: Watermark strength (default: 100)
-- `d2_<number>`: Image preservation (default: 60)
+- `content_<base64url>`: Base64URL encoded watermark text
 
 Example:
 ```
-blindwatermark,content_Q29weXJpZ2h0,block_8
+GET /async-image/example.jpg?operations=blindwatermark,content_Q29weXJpZ2h0
+```
+
+Response:
+```
+{
+    "TaskId": "c66b85ce-384d-4790-8417-e8821e34dff7",
+    "message": "Image processing task received and started"
+}
+```
+
+### 8. Deblind Watermark (`deblindwatermark`)
+Extracts invisible watermark from protected image. This is an asynchronous operation.
+
+Example:
+```
+GET /async-image/blindwatermark/example.jpg?operations=deblindwatermark
+```
+Response:
+```
+{
+    "TaskId": "c66b85ce-384d-4790-8417-e8821e34dff7",
+    "message": "Image processing task received and started"
+}
 ```
 
 ## Complex Examples
@@ -172,12 +197,12 @@ GET /image/photo.jpg?operations=auto-orient,1/resize,w_1200/watermark,text_Q29we
 
 4. Process Image with Blind Watermark
 ```
-GET /image/document.jpg?operations=resize,w_2000/blindwatermark,content_Q29weXJpZ2h0,block_8/format,f_jpg,q_95
+GET /async-image/document.jpg?operations=resize,w_2000/blindwatermark,content_Q29weXJpZ2h0,block_8/format,f_jpg,q_95
 ```
 
 ## Response
 
-### Success Response
+### Success Response for Synchronize invoke:
 - Status Code: 200
 - Body: Processed image binary
 - Headers:
@@ -187,6 +212,12 @@ GET /image/document.jpg?operations=resize,w_2000/blindwatermark,content_Q29weXJp
   ETag: [md5-hash]
   X-Amz-Meta-Watermarked-Key: [key] (for blind watermark)
   ```
+### For /async-image/, retrive the taskId and call the task api
+```
+GET /task/{taskId}
+```
+
+For task processing details, see [Task Processor Documentation](../task-processor/README.md)
 
 ### Error Response
 - Status Code: 400/500

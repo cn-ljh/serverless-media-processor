@@ -4,7 +4,7 @@ import os
 import re
 from b64encoder_decoder import custom_b64encode, custom_b64decode
 from typing import List, Optional, Tuple, Union
-from s3_operations import S3Config, get_s3_client, download_object_from_s3
+from s3_operations import S3Config, get_s3_client, download_object_from_s3, upload_object_to_s3
 
 class WatermarkError(Exception):
     """Custom exception for watermark processing errors"""

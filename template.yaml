@@ -189,6 +189,63 @@ Resources:
                         required:
                           - TaskId
                           - message
+          /async-image/{proxy+}:
+            get:
+              # security:
+              #   - sigv4: []
+              x-amazon-apigateway-integration:
+                type: aws
+                httpMethod: POST
+                uri: !Sub arn:${AWS::Partition}:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${ImageProcessorFunction.Arn}/invocations
+                contentHandling: CONVERT_TO_TEXT
+                requestParameters:
+                  integration.request.header.X-Amz-Invocation-Type: "'Event'"
+                  integration.request.path.proxy: method.request.path.proxy
+                requestTemplates:
+                  application/json: |
+                    #set($proxy = $input.params().get('path').get('proxy'))
+                    #set($operations = $input.params().get('querystring').get('operations'))
+                    
+                    {
+                        "TaskId":"$context.requestId",
+                        "path":"$context.resourcePath",
+                        "pathParameters": {
+                            "proxy": "$proxy"
+                        },
+                        "queryStringParameters":{
+                            "operations": "$operations"
+                        }
+                    }
+                passthroughBehavior: when_no_templates
+                responses:
+                  default:
+                    statusCode: "200"
+                    contentHandling: CONVERT_TO_TEXT
+                    responseTemplates:
+                      application/json: |
+                        {
+                          "TaskId": "$context.requestId",
+                          "message": "Image processing task received and started"
+                        }
+              responses:
+                "200":
+                  description: "200 response"
+                  headers:
+                    Content-Type:
+                      schema:
+                        type: string
+                  content:
+                    application/json:
+                      schema:
+                        type: object
+                        properties:
+                          TaskId:
+                            type: string
+                          message:
+                            type: string
+                        required:
+                          - TaskId
+                          - message
 
   ApiGatewayLogGroup:
     Type: AWS::Logs::LogGroup
@@ -236,23 +293,32 @@ Resources:
       DockerContext: image-processor
       Dockerfile: Dockerfile
     Properties:
+      Role: !GetAtt ImageProcessorRole.Arn
       PackageType: Image
       Environment:
         Variables:
           S3_BUCKET_NAME: !Ref BucketName
           DDB_BWM_TABLE_NAME: !Ref BlindWatermarkTable
+          DDB_TASK_TABLE_NAME: !Ref TasksTable
       Timeout: 600
       MemorySize: 2048
-      Policies:
-        - S3CrudPolicy:
-            BucketName: !Ref BucketName
-        - DynamoDBCrudPolicy:
-            TableName: !Ref BlindWatermarkTable
+      # Policies:
+      #   - S3CrudPolicy:
+      #       BucketName: !Ref BucketName
+      #   - DynamoDBCrudPolicy:
+      #       TableName: !Ref BlindWatermarkTable
+      #       DDB_TASK_TABLE_NAME: !Ref TasksTable
       Events:
         GetImageAPI:
           Type: Api
           Properties:
             Path: /image/{proxy}
+            Method: get
+            RestApiId: !Ref MediaProcessorApi
+        AsyncImageAPI:
+          Type: Api
+          Properties:
+            Path: /async-image/{proxy+}
             Method: get
             RestApiId: !Ref MediaProcessorApi
 
@@ -317,6 +383,41 @@ Resources:
                   - lambda:InvokeFunction
                   - lambda:InvokeAsync
                 Resource: '*'
+  ImageProcessorRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ImageProcessorPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource: !Sub arn:${AWS::Partition}:s3:::${BucketName}/*
+              - Effect: Allow
+                Action:
+                  - s3:ListBucket
+                Resource: !Sub arn:${AWS::Partition}:s3:::${BucketName}
+              - Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Scan
+                Resource: 
+                  - !GetAtt BlindWatermarkTable.Arn
+                  - !GetAtt TasksTable.Arn
 
   TaskProcessorRole:
     Type: AWS::IAM::Role
@@ -404,6 +505,7 @@ Resources:
             Path: /async-doc/{proxy+}
             Method: post
             RestApiId: !Ref MediaProcessorApi
+        
 
   TasksTable:
     Type: AWS::DynamoDB::Table

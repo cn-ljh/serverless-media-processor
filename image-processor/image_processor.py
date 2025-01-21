@@ -5,13 +5,14 @@ import base64
 
 from image_resizer import resize_image, ResizeMode
 from image_cropper import crop_image
-from s3_operations import S3Config, get_s3_client, download_object_from_s3
+from s3_operations import S3Config, get_s3_client, download_object_from_s3, upload_object_to_s3
 from image_watermark import add_watermark
 from image_format_converter import convert_format
 from image_auto_orient import auto_orient_image
 from image_quality import transform_quality
 from image_blindwatermark import add_blind_watermark
 from image_deblindwatermark import extract_blind_watermark
+from ddb_operations import create_task_record, update_task_status, TaskStatus
 import json
 
 # Configure logging
@@ -87,13 +88,15 @@ def get_content_type(format_str: str) -> str:
     }
     return format_map.get(format_str.lower(), 'image/jpeg')
 
-def process_image(image_key: str, operations: str = None):
+def process_image(image_key: str, operations: str = None, task_id: str = None):
     """
     Process an image with chained operations.
     
     Args:
         image_key: S3 object key of the source image
         operations: Operation string (e.g., 'resize,p_50/crop,w_200,h_200')
+        task_id: Optional task ID for async processing
+        task_type: Task type identifier (default: "image")
         
     Returns:
         ImageResponse object with processed image and headers
@@ -102,6 +105,8 @@ def process_image(image_key: str, operations: str = None):
         ProcessingError: If operation fails
     """
     try:
+        # Create task record if task_id is provided
+
         s3_config = S3Config()
         s3_client = get_s3_client()
 
@@ -110,6 +115,7 @@ def process_image(image_key: str, operations: str = None):
         image_data = download_object_from_s3(s3_client, s3_config.bucket_name, image_key)
         current_image_data = image_data
         content_type = None
+        target_key = ""
 
         # Process operations if provided
         if operations:
@@ -119,7 +125,8 @@ def process_image(image_key: str, operations: str = None):
             for operation_str in operation_chain:
                 operation, params = parse_operation(operation_str)
                 logger.info(f"Processing operation: {operation} with params: {params}")
-                
+                task_type = f'image/{operation}'
+
                 if operation == 'auto-orient':
                     orient_params = {
                         'auto': params.get('auto', 0)
@@ -170,6 +177,15 @@ def process_image(image_key: str, operations: str = None):
                     current_image_data = crop_image(current_image_data, crop_params)
                     
                 elif operation == 'watermark':
+                    target_key = f'watermark/{image_key}'
+                    if task_id:
+                        create_task_record(
+                            task_id=task_id,
+                            source_key=image_key,
+                            target_key=target_key,  
+                            task_type=task_type,
+                            conversion_params={"operations": operations} if operations else {}
+                        )
                     # Ensure color is properly formatted
                     color = params.get('color', '000000')
                     if color and len(color) < 6:
@@ -213,6 +229,15 @@ def process_image(image_key: str, operations: str = None):
                         
                     current_image_data = add_watermark(current_image_data, **watermark_params)
                     
+                    # Upload to S3
+                    upload_object_to_s3(
+                        client=s3_client,
+                        bucket=s3_config.bucket_name,
+                        key=target_key,
+                        object_data=current_image_data
+                    )
+                    update_task_status(task_id, task_type, TaskStatus.COMPLETED)
+                    
                 elif operation == 'format':
                     format_params = {
                         'f': params.get('f', 'jpg'),
@@ -231,6 +256,16 @@ def process_image(image_key: str, operations: str = None):
                 
                 elif operation == 'blindwatermark':
                     # Decode URL-safe base64-encoded watermark text
+                    target_key = f"blindwatermark/{image_key}"
+
+                    create_task_record(
+                        task_id=task_id,
+                        source_key=image_key,
+                        target_key=target_key,  
+                        task_type=task_type,
+                        conversion_params={"operations": operations} if operations else {}
+                    )
+
                     encoded_text = params.get('content', params.get('context', 'UHJvdGVjdGVk'))  # Try content first, then context, then default
                     try:
                         # Add padding if needed
@@ -262,23 +297,37 @@ def process_image(image_key: str, operations: str = None):
                         'd1': params.get('d1', 30),
                         'd2': params.get('d2', 20)
                     }
-                    current_image_data, new_key = add_blind_watermark(current_image_data, **watermark_params)
-                    # Add the new S3 key to response headers
-                    headers = {
-                        "X-Amz-Meta-Watermarked-Key": new_key
-                    }
+                    current_image_data = add_blind_watermark(current_image_data, **watermark_params)
+                    # Create new object key with bwm prefix
+                    
+                    # Upload to S3
+                    upload_object_to_s3(
+                        client=s3_client,
+                        bucket=s3_config.bucket_name,
+                        key=target_key,
+                        object_data=current_image_data
+                    )
+                    logger.info(f"Uploaded watermarked image to S3: {target_key}")
+                    
+                    update_task_status(task_id, task_type, TaskStatus.COMPLETED)
                 
                 elif operation == 'deblindwatermark':
+                    create_task_record(
+                        task_id=task_id,
+                        source_key=image_key,
+                        target_key="",
+                        task_type=task_type,
+                        conversion_params={"operations": operations} if operations else {}
+                    )
                     result = extract_blind_watermark(current_image_data)
                     current_image_data = json.dumps(result).encode('utf-8')
                     content_type = 'application/json'
-                
+                    update_task_status(task_id, task_type, TaskStatus.COMPLETED, json.loads(current_image_data)['blindwatermark']['text'])
                 else:
                     raise ProcessingError(
                         status_code=400,
                         detail=f"Unknown operation: {operation}"
                     )
-
         # If no format operation was specified, determine content type from file extension
         if content_type is None:
             _, file_extension = os.path.splitext(image_key)
@@ -297,15 +346,20 @@ def process_image(image_key: str, operations: str = None):
             "Cache-Control": cache_control,
             "ETag": etag
         }
-        # Add operation-specific headers if they exist
-        if 'headers' in locals():
-            response_headers.update(headers)
-            
+
         return ImageResponse(
             body=current_image_data,
             headers=response_headers
         )
-
+                
     except Exception as e:
-        logger.error(f"Error processing image {image_key}: {str(e)}")
-        raise ProcessingError(status_code=500, detail=str(e))
+        logger.error(f"Error processing image: {str(e)}")
+        # Update task status to FAILED if task_id is provided
+        if task_id:
+            update_task_status(task_id, task_type, TaskStatus.FAILED, str(e))
+        if isinstance(e, ProcessingError):
+            raise e
+        raise ProcessingError(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )

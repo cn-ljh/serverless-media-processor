@@ -94,23 +94,7 @@ def add_blind_watermark(image_data: bytes, original_object_key: str, text: str =
             logger.error(f"Failed to save watermark info to DynamoDB: {str(e)}")
             # Continue processing even if DDB save fails
             
-        # Upload watermarked image to S3
-        s3_client = s3_operations.get_s3_client()
-        config = s3_operations.S3Config()
-        
-        # Create new object key with bwm prefix
-        new_object_key = f"blindwatermark/{original_object_key}"
-        
-        # Upload to S3
-        s3_operations.upload_object_to_s3(
-            client=s3_client,
-            bucket=config.bucket_name,
-            key=new_object_key,
-            object_data=output_data
-        )
-        logger.info(f"Uploaded watermarked image to S3: {new_object_key}")
-            
-        return output_data, new_object_key
+        return output_data
         
     except Exception as e:
         # Clean up temporary files in case of error

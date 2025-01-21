@@ -21,10 +21,14 @@ class DDBConfig:
     """DynamoDB configuration class"""
     def __init__(self):
         self.region_name = os.getenv("AWS_REGION", "us-east-1")
-        self.table_name = os.getenv("DDB_BWM_TABLE_NAME")
+        self.bwm_table_name = os.getenv("DDB_BWM_TABLE_NAME")
+        self.task_table_name = os.getenv("DDB_TASK_TABLE_NAME")
         
-        if not self.table_name:
+        if not self.bwm_table_name :
             raise ValueError("DDB_BWM_TABLE_NAME environment variable must be set")
+        if not self.task_table_name:
+            raise ValueError("DDB_TASK_TABLE_NAMEenvironment variable must be set")
+
 
 def get_ddb_client():
     """Get DynamoDB client with configured region"""
@@ -50,7 +54,7 @@ def create_task_record(task_id: str, source_key: str, target_key: str, task_type
     
     try:
         client.put_item(
-            TableName=config.table_name,
+            TableName=config.task_table_name,
             Item={
                 'TaskId': {'S': task_id},
                 'SourceKey': {'S': source_key},
@@ -70,7 +74,7 @@ def create_task_record(task_id: str, source_key: str, target_key: str, task_type
             detail=f"Failed to create task record: {str(e)}"
         )
 
-def update_task_status(task_id: str, task_type: str, status: TaskStatus, error_message: str = None):
+def update_task_status(task_id: str, task_type: str, status: TaskStatus, message: str = None):
     """
     Update task status in DynamoDB
     
@@ -92,14 +96,19 @@ def update_task_status(task_id: str, task_type: str, status: TaskStatus, error_m
         ":updated": {"S": datetime.now(timezone.utc).isoformat()}
     }
     
-    if error_message and status == TaskStatus.FAILED:
-        update_expr += ", #error = :error"
-        expr_names["#error"] = "ErrorMessage"
-        expr_values[":error"] = {"S": error_message}
+    if message:
+        if status == TaskStatus.FAILED:
+            update_expr += ", #error = :error"
+            expr_names["#error"] = "ErrorMessage"
+            expr_values[":error"] = {"S": message}
+        elif status == TaskStatus.COMPLETED:
+            update_expr += ", #result = :result"
+            expr_names["#result"] = "Result"
+            expr_values[":result"] = {"S": message}
     
     try:
         client.update_item(
-            TableName=config.table_name,
+            TableName=config.task_table_name,
             Key={'TaskId': {'S': task_id}},
                 #  'TaskType':{'S': task_type}},
             UpdateExpression=update_expr,
@@ -127,7 +136,7 @@ def get_task_status(task_id: str, task_type: str) -> dict:
     
     try:
         response = client.get_item(
-            TableName=config.table_name,
+            TableName=config.task_table_name,
             Key={'TaskId': {'S': task_id}}
                 #  'TaskType':{'S': task_type}}
         )
@@ -163,7 +172,7 @@ def create_watermark_record(text: str, password_wm: int, password_img: int, bloc
     
     try:
         client.put_item(
-            TableName=config.table_name,
+            TableName=config.bwm_table_name,
             Item={
                 'WaterMakerContent': {'S': text},
                 'PasswordWM': {'N': str(password_wm)},
@@ -195,7 +204,7 @@ def scan_watermark_records():
         paginator = client.get_paginator('scan')
         watermark_records = []
         
-        for page in paginator.paginate(TableName=config.table_name):
+        for page in paginator.paginate(TableName=config.bwm_table_name):
             for item in page['Items']:
                 if 'WaterMakerContent' in item:  # Only process watermark records
                     watermark_records.append({

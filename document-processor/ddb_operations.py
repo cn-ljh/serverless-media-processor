@@ -20,7 +20,7 @@ class ProcessingError(Exception):
 class DDBConfig:
     """DynamoDB configuration class"""
     def __init__(self):
-        self.region_name = os.getenv("AWS_REGION", "us-east-1")
+        self.region_name = os.getenv("AWS_REGION", "cn-northwest-1")
         self.table_name = os.getenv("DDB_TABLE_NAME")
         
         if not self.table_name:
@@ -70,14 +70,14 @@ def create_task_record(task_id: str, source_key: str, target_key: str, task_type
             detail=f"Failed to create task record: {str(e)}"
         )
 
-def update_task_status(task_id: str, task_type: str, status: TaskStatus, error_message: str = None):
+def update_task_status(task_id: str, task_type: str, status: TaskStatus, message: str = None):
     """
     Update task status in DynamoDB
     
     Args:
         task_id: Task identifier
         status: New status
-        error_message: Optional error message for failed tasks
+        message: Optional error message for failed tasks
     """
     config = DDBConfig()
     client = get_ddb_client()
@@ -92,10 +92,16 @@ def update_task_status(task_id: str, task_type: str, status: TaskStatus, error_m
         ":updated": {"S": datetime.now(timezone.utc).isoformat()}
     }
     
-    if error_message and status == TaskStatus.FAILED:
-        update_expr += ", #error = :error"
-        expr_names["#error"] = "ErrorMessage"
-        expr_values[":error"] = {"S": error_message}
+    if message:
+        if status == TaskStatus.FAILED:
+            update_expr += ", #error = :error"
+            expr_names["#error"] = "ErrorMessage"
+            expr_values[":error"] = {"S": message}
+        elif status == TaskStatus.COMPLETED:
+            update_expr += ", #result = :result"
+            expr_names["#result"] = "Result"
+            expr_values[":result"] = {"S": message}
+    
     
     try:
         client.update_item(
