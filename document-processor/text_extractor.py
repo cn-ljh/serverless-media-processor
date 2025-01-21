@@ -129,7 +129,7 @@ class TextExtractor:
                 "text": text.strip(),  # Remove any extra whitespace
                 "metadata": {
                     "source_format": source_format,
-                    "file_path": file_path,
+                    # "file_path": file_path,
                     "encoding": "utf-8"
                 }
             }

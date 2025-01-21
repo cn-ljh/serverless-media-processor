@@ -150,11 +150,7 @@ def get_file_extension(key: str) -> str:
         s3_config = S3Config()
         s3_client = get_s3_client()
         data = download_object_from_s3(s3_client, s3_config.bucket_name, key)
-        
-        # Try to detect if it's a text file first
-        if is_text_file(data):
-            return 'txt'
-            
+                    
         # Check file signatures (magic numbers)
         if data.startswith(b'%PDF'):
             return 'pdf'
@@ -198,7 +194,9 @@ def get_file_extension(key: str) -> str:
                             return 'xls'
                         except:
                             pass
-                            
+        elif is_text_file(data):
+            return 'txt' 
+        
         raise ProcessingError(
             status_code=400,
             detail="Could not determine file format. Please specify format explicitly."
