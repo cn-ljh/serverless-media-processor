@@ -68,8 +68,8 @@ class ImageWatermarkParams(BaseWatermarkParams):
 
 class TextWatermarkParams(BaseWatermarkParams):
     """Text watermark specific parameters"""
-    def __init__(self, text: str, type: str = "华文楷体", color: str = "000000",
-                 size: int = 40, shadow: int = 0, rotate: int = 0, **kwargs):
+    def __init__(self, text: str, type: str = "华文楷体", color: str = "FFFFFF",
+                 size: int = 40, shadow: int = 40, rotate: int = 0, **kwargs):
         self.text = text
         self.type = type
         self.color = color
@@ -155,9 +155,15 @@ class WatermarkProcessor:
         output = Image.alpha_composite(image, watermark)
         output = output.convert('RGB')
 
-        # Save to bytes
+        # Save to bytes with high quality
         output_bytes = BytesIO()
-        output.save(output_bytes, format=image.format or 'JPEG')
+        save_params = {'format': image.format or 'JPEG'}
+        if save_params['format'] == 'JPEG':
+            save_params['quality'] = 95
+            save_params['optimize'] = True
+        elif save_params['format'] == 'PNG':
+            save_params['optimize'] = True
+        output.save(output_bytes, **save_params)
         return output_bytes.getvalue()
 
     def _apply_text_watermark(self, watermark: Image.Image, params: TextWatermarkParams) -> Image.Image:
@@ -170,36 +176,85 @@ class WatermarkProcessor:
             raise WatermarkError(f"Failed to load font: {params.type}")
 
         text = params.text
-        if len(text) > 64:
-            raise WatermarkError("Text exceeds 64 characters")
+        padding = 10  # Further reduced padding
+        
+        # Calculate maximum available space
+        max_width = watermark.size[0] - 2 * params.x - padding * 2
+        max_height = watermark.size[1] - 2 * params.y - padding * 2
+        
+        # Function to wrap text and calculate size
+        def get_wrapped_text_size(text, font, max_width):
+            lines = []
+            words = text.split()
+            current_line = []
+            
+            for word in words:
+                current_line.append(word)
+                line = ' '.join(current_line)
+                bbox = draw.textbbox((0, 0), line, font=font)
+                if bbox[2] - bbox[0] > max_width and len(current_line) > 1:
+                    current_line.pop()
+                    lines.append(' '.join(current_line))
+                    current_line = [word]
+            
+            if current_line:
+                lines.append(' '.join(current_line))
+            
+            return lines
+        
+        # Initial text wrapping and size calculation
+        lines = get_wrapped_text_size(text, font, max_width)
+        line_spacing = int(params.size * 0.2)  # 20% of font size for line spacing
+        
+        # Calculate total text height with line spacing
+        total_height = (len(lines) * (params.size + line_spacing)) - line_spacing + padding * 2
+        max_line_width = max(draw.textbbox((0, 0), line, font=font)[2] for line in lines)
+        total_width = max_line_width + padding * 2
+        
+        # Reduce font size if needed while maintaining readability
+        while (total_height > max_height or total_width > max_width) and params.size > 12:
+            params.size = int(params.size * 0.9)  # Reduce by 10%
+            font = ImageFont.truetype(self.font_path, params.size)
+            lines = get_wrapped_text_size(text, font, max_width)
+            line_spacing = int(params.size * 0.2)  # Keep consistent with initial spacing
+            total_height = (len(lines) * (params.size + line_spacing)) - line_spacing + padding * 2
+            max_line_width = max(draw.textbbox((0, 0), line, font=font)[2] for line in lines)
+            total_width = max_line_width + padding * 2
 
-        # Get text size
-        bbox = draw.textbbox((0, 0), text, font=font)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
-
-        # Calculate position
-        pos = self._calculate_position(watermark.size, (text_width, text_height), params)
-
-        # Parse color
-        try:
-            r = int(params.color[0:2], 16)
-            g = int(params.color[2:4], 16)
-            b = int(params.color[4:6], 16)
-        except ValueError:
-            raise WatermarkError(f"Invalid color format: {params.color}")
-
-        # Create a temporary image for the text
-        txt = Image.new('RGBA', (text_width + 20, text_height + 20), (0,0,0,0))
+        # Create a temporary image for the text with semi-transparent gray background
+        txt = Image.new('RGBA', (total_width, total_height), (128, 128, 128, 180))  # Semi-transparent gray background
         d = ImageDraw.Draw(txt)
+        
+        # Calculate centered text position within the temporary image
+        text_x = padding
+        text_y = padding  # Start from top padding since we're drawing multiple lines
 
-        # Draw shadow if enabled
-        if params.shadow > 0:
-            shadow_color = (0, 0, 0, int(255 * params.shadow / 100))
-            d.text((12, 12), text, font=font, fill=shadow_color)
+        # Use white color for text
+        r, g, b = 255, 255, 255  # White color for better visibility on gray background
+        
+        # Draw text with shadow and color
+        y_offset = text_y
+        for line in lines:
+            # Draw shadow first (if enabled)
+            if params.shadow > 0:
+                shadow_opacity = min(255, int(255 * params.shadow / 40))  # Further increased opacity
+                shadow_color = (0, 0, 0, shadow_opacity)
+                for dx, dy in [(4, 4), (4, 3), (3, 4), (3, 3)]:  # Thicker shadow
+                    d.text((text_x + dx, y_offset + dy), line, font=font, fill=shadow_color)
 
-        # Draw text with full color
-        d.text((10, 10), text, font=font, fill=(r, g, b, 255))
+            # Draw outline for better visibility
+            outline_positions = [
+                (-1, -1), (0, -1), (1, -1),
+                (-1, 0),           (1, 0),
+                (-1, 1),  (0, 1),  (1, 1)
+            ]
+            for dx, dy in outline_positions:
+                for i in range(2):  # Draw outline twice for thickness
+                    d.text((text_x + dx, y_offset + dy), line, font=font, fill=(0, 0, 0, 255))
+            
+            # Draw main text with specified color
+            d.text((text_x, y_offset), line, font=font, fill=(r, g, b, 255))
+            y_offset += params.size + line_spacing
 
         # Apply rotation if needed
         if params.rotate != 0:
@@ -210,8 +265,28 @@ class WatermarkProcessor:
             alpha = Image.new('L', txt.size, int(255 * params.t / 100))
             txt.putalpha(ImageChops.multiply(txt.getchannel('A'), alpha))
 
+        # Calculate position based on watermark position parameter
+        width, height = watermark.size
+        if params.g in {'nw', 'north', 'ne'}:  # Top positions
+            y = params.y
+        elif params.g in {'west', 'center', 'east'}:  # Middle positions
+            y = (height - total_height) // 2 + params.voffset
+        else:  # Bottom positions
+            y = height - total_height - params.y
+
+        if params.g in {'nw', 'west', 'sw'}:  # Left positions
+            x = params.x
+        elif params.g in {'north', 'center', 'south'}:  # Center positions
+            x = (width - total_width) // 2
+        else:  # Right positions
+            x = width - total_width - params.x
+
+        # Ensure position stays within image boundaries
+        x = max(0, min(x, width - total_width))
+        y = max(0, min(y, height - total_height))
+
         # Paste the text onto the watermark
-        watermark.paste(txt, (int(pos[0]-10), int(pos[1]-10)), txt)
+        watermark.paste(txt, (x, y), txt)
 
         return watermark
 
@@ -229,7 +304,7 @@ class WatermarkProcessor:
         except Exception as e:
             raise WatermarkError(f"Failed to load watermark image: {str(e)}")
 
-        # Scale watermark if needed
+        # Scale watermark if needed using high-quality resampling
         if params.P is not None:
             original_size = wm_image.size
             new_size = tuple(int(dim * params.P / 100) for dim in original_size)
@@ -240,10 +315,8 @@ class WatermarkProcessor:
 
         # Apply transparency
         if params.t != 100:
-            wm_image.putalpha(ImageChops.multiply(
-                wm_image.getchannel('A'),
-                Image.new('L', wm_image.size, int(255 * params.t / 100))
-            ))
+            alpha = Image.new('L', wm_image.size, int(255 * params.t / 100))
+            wm_image.putalpha(ImageChops.multiply(wm_image.getchannel('A'), alpha))
 
         # Paste watermark
         watermark.paste(wm_image, pos, wm_image)
@@ -262,18 +335,23 @@ class WatermarkProcessor:
         watermark = self._apply_image_watermark(watermark, image_params)
         
         # Adjust position for second watermark based on alignment
+        original_y = text_params.y  # Store original y value
+        
         if combined_params.align == 0:  # Top
             text_params.y = image_params.y + combined_params.interval
         elif combined_params.align == 1:  # Middle
             text_params.voffset = combined_params.interval // 2
         else:  # Bottom
-            text_params.y = image_params.y - combined_params.interval
+            text_params.y = image_params.y + combined_params.interval
 
         # Apply second watermark
         watermark = self._apply_text_watermark(watermark, text_params)
-
+        
+        # Restore original y value
+        text_params.y = original_y
+        
         return watermark
-
+    
     def _calculate_position(self, canvas_size: Tuple[int, int], 
                           element_size: Tuple[int, int], 
                           params: BaseWatermarkParams) -> Tuple[int, int]:
@@ -281,6 +359,7 @@ class WatermarkProcessor:
         width, height = canvas_size
         elem_width, elem_height = element_size
         
+        # Calculate base positions
         positions = {
             'nw': (params.x, params.y),
             'north': ((width - elem_width) // 2, params.y),
@@ -298,9 +377,14 @@ class WatermarkProcessor:
         if params.g in {'west', 'center', 'east'}:
             y += params.voffset
 
+        # Ensure position stays within image boundaries with padding
+        margin = 5  # Reduced safety margin
+        y = max(margin, min(y, height - elem_height - margin))
+        x = max(margin, min(x, width - elem_width - margin))
+
         return (x, y)
 
-def add_watermark(image_data: bytes, text: str = None, image: str = None, color: str = "000000", **kwargs) -> bytes:
+def add_watermark(image_data: bytes, text: str = None, image: str = None, color: str = "FFFFFF", **kwargs) -> bytes:
     """
     Legacy interface for backward compatibility
     
@@ -316,13 +400,13 @@ def add_watermark(image_data: bytes, text: str = None, image: str = None, color:
     
     if text is not None:
         # Decode the base64 encoded text
-        try:
-            decoded_text = custom_b64decode(str(text))
-        except Exception:
-            raise WatermarkError("Invalid text encoding")
+        # try:
+        #     decoded_text = custom_b64decode(str(text))
+        # except Exception:
+        #     raise WatermarkError("Invalid text encoding")
             
         text_params = {
-            'text': decoded_text,
+            'text': text,
             'color': str(color),
             **kwargs
         }

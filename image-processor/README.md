@@ -85,14 +85,14 @@ Parameters:
 
 Examples:
 ```
-# Add text watermark
-watermark,text_Copyright%202024,color_FF0000,size_30,g_se
+# Add text watermark, Q29weXJpZ2h0 is Base64encoded for "Copyright"
+watermark,text_CQ29weXJpZ2h0,color_FF0000,size_30,g_se
 
 # Add semi-transparent text watermark at center
-watermark,text_Confidential,t_50,g_c,size_60
+watermark,text_Q29weXJpZ2h0,t_50,g_c,size_60
 
 # Add rotated watermark with shadow
-watermark,text_Draft,rotate_45,shadow_1,color_666666
+watermark,text_Q29weXJpZ2h0,rotate_45,shadow_1,color_666666
 ```
 
 ### 4. Format Conversion (`format`)
@@ -141,7 +141,7 @@ quality,q_85
 Adds invisible watermark for copyright protection.
 
 Parameters:
-- `context_<base64>`: Base64 encoded watermark text
+- `content_<base64>`: Base64 encoded watermark text
 - `block_<size>`: Block size (4, 8, 16, or 32)
 - `password_wm_<number>`: Watermark password (default: 1234)
 - `password_img_<number>`: Image password (default: 1234)
@@ -150,29 +150,29 @@ Parameters:
 
 Example:
 ```
-blindwatermark,context_Q29weXJpZ2h0,block_8
+blindwatermark,content_Q29weXJpZ2h0,block_8
 ```
 
 ## Complex Examples
 
 1. Resize and Add Watermark
 ```
-GET /image/example.jpg?operations=resize,w_1000/watermark,text_Copyright%202024,color_FF0000,g_se
+GET /image/example.jpg?operations=resize,w_1000/watermark,text_Q29weXJpZ2h0,color_FF0000,g_se
 ```
 
 2. Crop, Add Watermark, and Convert Format
 ```
-GET /image/photo.png?operations=crop,w_800,h_600,g_c/watermark,text_Confidential,t_50/format,f_jpg,q_90
+GET /image/photo.png?operations=crop,w_800,h_600,g_c/watermark,text_Q29weXJpZ2h0,t_50/format,f_jpg,q_90
 ```
 
 3. Auto Orient, Resize, and Add Multiple Watermarks
 ```
-GET /image/photo.jpg?operations=auto-orient,1/resize,w_1200/watermark,text_Draft,g_nw/watermark,text_Confidential,g_se
+GET /image/photo.jpg?operations=auto-orient,1/resize,w_1200/watermark,text_Q29weXJpZ2h0,g_se
 ```
 
 4. Process Image with Blind Watermark
 ```
-GET /image/document.jpg?operations=resize,w_2000/blindwatermark,context_Q29weXJpZ2h0IDIwMjQ,block_8/format,f_jpg,q_95
+GET /image/document.jpg?operations=resize,w_2000/blindwatermark,content_Q29weXJpZ2h0,block_8/format,f_jpg,q_95
 ```
 
 ## Response

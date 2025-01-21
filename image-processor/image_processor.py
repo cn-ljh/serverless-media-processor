@@ -1,6 +1,7 @@
 import os
 import hashlib
 import logging
+import base64
 
 from image_resizer import resize_image, ResizeMode
 from image_cropper import crop_image
@@ -47,14 +48,25 @@ def parse_operation(operation_str: str) -> tuple[str, dict]:
             except ValueError:
                 raise ValueError("auto-orient parameter must be 0 or 1")
         elif '_' in param:
-            key, value = param.split('_')
-            # Keep color and text as strings, try to convert others to int
-            if key not in {'color', 'text'}:
-                try:
-                    value = int(value)
-                except ValueError:
-                    pass
-            params[key] = value
+            # Special handling for base64 encoded content parameters
+            if param.startswith('text_'):
+                params['text'] = param[5:]  # Remove 'text_' prefix
+            elif param.startswith('content_'):
+                params['content'] = param[8:]  # Remove 'content_' prefix
+            elif param.startswith('context_'):
+                params['context'] = param[8:]  # Remove 'context_' prefix
+            else:
+                # For other parameters, split on first underscore only
+                parts = param.split('_', 1)
+                if len(parts) == 2:
+                    key, value = parts
+                    # Keep color and text as strings, try to convert others to int
+                    if key not in {'color', 'text', 'content', 'context'}:
+                        try:
+                            value = int(value)
+                        except ValueError:
+                            pass
+                    params[key] = value
         else:
             # Handle direct format specification (e.g., 'format,png' instead of 'format,f_png')
             if operation == 'format':
@@ -180,7 +192,18 @@ def process_image(image_key: str, operations: str = None):
                     
                     # Handle either text or image watermark
                     if 'text' in params:
-                        watermark_params['text'] = params['text']
+                        try:
+                            # Add padding if needed
+                            encoded_text = params['text']
+                            padding_needed = len(encoded_text) % 4
+                            if padding_needed:
+                                encoded_text += '=' * (4 - padding_needed)
+                            watermark_params['text'] = base64.urlsafe_b64decode(encoded_text).decode('utf-8')
+                        except Exception as e:
+                            raise ProcessingError(
+                                status_code=400,
+                                detail=f"Invalid URL-safe base64-encoded watermark text: {str(e)}"
+                            )
                     elif 'image' in params:
                         watermark_params['image'] = params['image']
                         if 'P' in params:
@@ -207,15 +230,18 @@ def process_image(image_key: str, operations: str = None):
                     current_image_data = transform_quality(current_image_data, quality_params)
                 
                 elif operation == 'blindwatermark':
-                    # Decode base64-encoded watermark text
-                    encoded_text = params.get('context', 'UHJvdGVjdGVk')  # Default to base64('Protected')
+                    # Decode URL-safe base64-encoded watermark text
+                    encoded_text = params.get('content', params.get('context', 'UHJvdGVjdGVk'))  # Try content first, then context, then default
                     try:
-                        import base64
-                        watermark_text = base64.b64decode(encoded_text).decode('utf-8')
+                        # Add padding if needed
+                        padding_needed = len(encoded_text) % 4
+                        if padding_needed:
+                            encoded_text += '=' * (4 - padding_needed)
+                        watermark_text = base64.urlsafe_b64decode(encoded_text).decode('utf-8')
                     except Exception as e:
                         raise ProcessingError(
                             status_code=400,
-                            detail=f"Invalid base64-encoded watermark text: {str(e)}"
+                            detail=f"Invalid URL-safe base64-encoded watermark text: {str(e)}"
                         )
                     
                     # Validate block size
@@ -233,8 +259,8 @@ def process_image(image_key: str, operations: str = None):
                         'password_img': params.get('password_img', 1234),
                         # block_shape must be one of: 4, 8, 16, 32
                         'block_shape': (params.get('block', 4), params.get('block', 4)),
-                        'd1': params.get('d1', 100),
-                        'd2': params.get('d2', 60)
+                        'd1': params.get('d1', 30),
+                        'd2': params.get('d2', 20)
                     }
                     current_image_data, new_key = add_blind_watermark(current_image_data, **watermark_params)
                     # Add the new S3 key to response headers

@@ -95,7 +95,7 @@ def extract_blind_watermark(image_data: bytes) -> dict:
                         os.remove(normalized_path)
                         return {
                             'status': 'success',
-                            'watermark': {
+                            'blindwatermark': {
                                 'text': extracted_text
                             }
                         }
