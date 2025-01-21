@@ -64,6 +64,9 @@ class SourceFormat(str, Enum):
     
     # PDF format
     PDF = "pdf"
+    
+    # Text format
+    TXT = "txt"
 
 class TargetFormat(str, Enum):
     PDF = "pdf"

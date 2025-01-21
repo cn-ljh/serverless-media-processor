@@ -1,6 +1,9 @@
 import os
 import tempfile
 import logging
+import pandas as pd
+from docx import Document
+from pptx import Presentation
 
 from s3_operations import (
     S3Config, get_s3_client, download_object_from_s3, 
@@ -62,9 +65,152 @@ def parse_operation(operation_str: str) -> tuple[str, dict]:
             
     return operation, params
 
+def is_text_file(data):
+    # Quick check for small files that are likely text
+    if len(data) < 512:  # Small files are often text files
+        try:
+            sample = data.decode('utf-8')
+            printable_chars = sum(c.isprintable() or c.isspace() for c in sample)
+            if printable_chars / len(sample) > 0.50:  # Very lenient for small files
+                return True
+        except UnicodeDecodeError:
+            pass
+
+    # Common text file signatures and patterns
+    if data.startswith(b'\xEF\xBB\xBF'):  # UTF-8 BOM
+        return True
+    if data.startswith(b'\xFF\xFE') or data.startswith(b'\xFE\xFF'):  # UTF-16 BOM
+        return True
+    if data.startswith(b'#!') or data.startswith(b'<?xml'):  # Common script/markup headers
+        return True
+        
+    # Try different encodings
+    encodings = ['utf-8', 'ascii', 'utf-16', 'latin1']
+    for encoding in encodings:
+        try:
+            # Take a smaller initial sample for quick check
+            sample = data[:1024].decode(encoding)
+            
+            # Quick check for obvious text content
+            printable_chars = sum(c.isprintable() or c.isspace() for c in sample)
+            if printable_chars / len(sample) > 0.60:  # More lenient initial check
+                return True
+                
+            # If not obvious, do a more thorough check with a larger sample
+            sample = data[:4096].decode(encoding)
+            lines = sample.splitlines()
+            
+            # Skip if no lines
+            if not lines:
+                continue
+                
+            # Count lines with mostly printable characters
+            text_lines = 0
+            for line in lines:
+                if not line:  # Skip empty lines
+                    continue
+                    
+                # Check for common text patterns
+                if any(pattern in line for pattern in [
+                    '=', ':', ',', ';',  # Common delimiters
+                    '{', '}', '[', ']',  # Brackets
+                    '<', '>', '/',        # XML/HTML tags
+                    '#', '//', '/*',      # Comments
+                    'http://', 'https://' # URLs
+                ]):
+                    return True
+                    
+                # Count printable characters
+                printable_chars = sum(c.isprintable() or c.isspace() for c in line)
+                if printable_chars / len(line) > 0.60:  # More lenient ratio
+                    text_lines += 1
+                    
+            # If we have multiple lines and some are printable
+            if len(lines) > 0 and text_lines / len(lines) > 0.5:  # More lenient ratio
+                return True
+                
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+            
+    return False
+
 def get_file_extension(key: str) -> str:
-    """Get file extension from key"""
-    return os.path.splitext(key)[1][1:].lower()
+    """
+    Get file extension from key or detect format from file content if no extension
+    Returns: Detected file format as string
+    Raises: ProcessingError if format cannot be determined
+    """
+    # First try to get extension from key
+    ext = os.path.splitext(key)[1][1:].lower()
+    if ext:
+        return ext
+        
+    # If no extension, try to detect format from content
+    try:
+        s3_config = S3Config()
+        s3_client = get_s3_client()
+        data = download_object_from_s3(s3_client, s3_config.bucket_name, key)
+        
+        # Try to detect if it's a text file first
+        if is_text_file(data):
+            return 'txt'
+            
+        # Check file signatures (magic numbers)
+        if data.startswith(b'%PDF'):
+            return 'pdf'
+        elif data.startswith(b'PK\x03\x04'):
+            # Office Open XML formats (docx, xlsx, pptx)
+            # Need to check internal content
+            with tempfile.NamedTemporaryFile() as temp:
+                temp.write(data)
+                temp.flush()
+                
+                try:
+                    Document(temp.name)
+                    return 'docx'
+                except:
+                    try:
+                        Presentation(temp.name)
+                        return 'pptx'
+                    except:
+                        try:
+                            pd.read_excel(temp.name)
+                            return 'xlsx'
+                        except:
+                            pass
+        elif data.startswith(b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1'):
+            # Compound File Binary Format (doc, xls, ppt)
+            # Try opening with different libraries to determine exact type
+            with tempfile.NamedTemporaryFile() as temp:
+                temp.write(data)
+                temp.flush()
+                
+                try:
+                    Document(temp.name)
+                    return 'doc'
+                except:
+                    try:
+                        Presentation(temp.name)
+                        return 'ppt'
+                    except:
+                        try:
+                            pd.read_excel(temp.name)
+                            return 'xls'
+                        except:
+                            pass
+                            
+        raise ProcessingError(
+            status_code=400,
+            detail="Could not determine file format. Please specify format explicitly."
+        )
+                            
+    except Exception as e:
+        if isinstance(e, ProcessingError):
+            raise
+        raise ProcessingError(
+            status_code=500,
+            detail=f"Error detecting file format: {str(e)}"
+        )
 
 def process_document_sync(task_id: str, object_key: str, s3_config: S3Config, s3_client, output_key: str, target_bucket: str, source_format: SourceFormat, target_format: TargetFormat, pages=None):
     """

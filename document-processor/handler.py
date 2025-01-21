@@ -62,13 +62,13 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     }, ensure_ascii=False)
                 }
         else:
-            # For convert operations, validate format
+            # For convert operations, validate format and target parameter
             parts = operations_str.split(',')
-            if len(parts) < 3 or parts[0] != 'convert':
+            if parts[0] != 'convert' or not any(param.startswith('target_') for param in parts[1:]):
                 return {
                     'statusCode': 400,
                     'body': json.dumps({
-                        'error': 'Invalid operations format. Expected: convert,target_format,source_format'
+                        'error': 'Invalid operations format. Operation must be "convert" and must include a target_format parameter'
                     }, ensure_ascii=False)
                 }
             

@@ -3,6 +3,7 @@ import logging
 import tempfile
 import os
 from typing import Dict, Any
+from doc_processor import get_file_extension
 from doc_converter import (
     SourceFormat,
     extract_text_from_word,
@@ -34,8 +35,8 @@ class TextExtractor:
         """
         try:
             # Get source format from file extension
-            source_format = object_key.split('.')[-1].lower()
-            
+            #source_format = object_key.split('.')[-1].lower()
+            source_format = get_file_extension(object_key)
             # Download file from S3
             file_data = download_object_from_s3(
                 self.s3_client,
@@ -109,7 +110,11 @@ class TextExtractor:
                     # Read extracted text from temp file
                     with open(temp_file.name, 'r', encoding='utf-8') as f:
                         text = f.read()
-                        
+            elif source_format == SourceFormat.TXT:
+                # Read text directly from txt file
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    text = f.read()
+                
             else:
                 error_msg = f"Unsupported source format for text extraction: {source_format}"
                 logger.error(error_msg)
