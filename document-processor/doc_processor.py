@@ -134,22 +134,27 @@ def is_text_file(data):
             
     return False
 
-def get_file_extension(key: str) -> str:
+def get_file_extension(key: str = None, data: bytes = None) -> str:
     """
-    Get file extension from key or detect format from file content if no extension
+    Get file extension from key or detect format from file content
+    Args:
+        key: Optional S3 object key to get extension from
+        data: Optional file data to detect format from
     Returns: Detected file format as string
     Raises: ProcessingError if format cannot be determined
     """
-    # First try to get extension from key
-    ext = os.path.splitext(key)[1][1:].lower()
-    if ext:
-        return ext
+    # First try to get extension from key if provided
+    if key:
+        ext = os.path.splitext(key)[1][1:].lower()
+        if ext:
+            return ext
         
-    # If no extension, try to detect format from content
+    # If no extension or no key, try to detect format from content
     try:
-        s3_config = S3Config()
-        s3_client = get_s3_client()
-        data = download_object_from_s3(s3_client, s3_config.bucket_name, key)
+        if not data:
+            s3_config = S3Config()
+            s3_client = get_s3_client()
+            data = download_object_from_s3(s3_client, s3_config.bucket_name, key)
                     
         # Check file signatures (magic numbers)
         if data.startswith(b'%PDF'):

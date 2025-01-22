@@ -118,13 +118,12 @@ def update_task_status(task_id: str, task_type: str, status: TaskStatus, message
             detail=f"Failed to update task status: {str(e)}"
         )
 
-def get_task_status(task_id: str, task_type: str) -> dict:
+def get_task_status(task_id: str) -> dict:
     """
     Get task status from DynamoDB
     
     Args:
         task_id: Task identifier
-        task_type: Task type        
     Returns:
         dict: Task record
     """
@@ -148,4 +147,46 @@ def get_task_status(task_id: str, task_type: str) -> dict:
         raise ProcessingError(
             status_code=500,
             detail=f"Failed to get task status: {str(e)}"
+        )
+
+def scan_tasks_by_operation(operation: str) -> list:
+    """
+    Scan DynamoDB table for tasks matching the operation type
+    
+    Args:
+        operation: Task type/operation to filter by
+    Returns:
+        list: List of matching task records
+    """
+    config = DDBConfig()
+    client = get_ddb_client()
+    
+    try:
+        items = []
+        last_evaluated_key = None
+        
+        while True:
+            scan_kwargs = {
+                'TableName': config.table_name,
+                'FilterExpression': 'TaskType = :operation',
+                'ExpressionAttributeValues': {
+                    ':operation': {'S': operation}
+                }
+            }
+            
+            if last_evaluated_key:
+                scan_kwargs['ExclusiveStartKey'] = last_evaluated_key
+                
+            response = client.scan(**scan_kwargs)
+            items.extend(response.get('Items', []))
+            
+            last_evaluated_key = response.get('LastEvaluatedKey')
+            if not last_evaluated_key:
+                break
+                
+        return items
+    except ClientError as e:
+        raise ProcessingError(
+            status_code=500,
+            detail=f"Failed to scan tasks: {str(e)}"
         )

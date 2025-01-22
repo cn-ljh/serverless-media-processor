@@ -333,7 +333,7 @@ Resources:
       Environment:
         Variables:
           S3_BUCKET_NAME: !Ref BucketName
-      Timeout: 60
+      Timeout: 300
       MemorySize: 2048
       Policies:
         - S3CrudPolicy:
@@ -439,6 +439,7 @@ Resources:
               - Effect: Allow
                 Action:
                   - dynamodb:GetItem
+                  - dynamodb:Scan
                 Resource: !GetAtt TasksTable.Arn
               - Effect: Allow
                 Action:
@@ -485,7 +486,7 @@ Resources:
           S3_BUCKET_NAME: !Ref BucketName
           DDB_TABLE_NAME: !Ref TasksTable
       Timeout: 300
-      MemorySize: 1024
+      MemorySize: 2048
       Events:
         ProcessAPI:
           Type: Api

@@ -4,7 +4,41 @@ This Lambda function provides document processing capabilities through API Gatew
 
 ## API Endpoints
 
-### 1. Synchronous Document Processing
+### 1. Text Extraction 
+#### Text file loacated in S3
+```
+GET /text/{object_key}
+```
+
+#### Parameters
+- `object_key`: The object key (path) of the document in S3 bucket
+- `operations`: Set to "extract" for text extraction
+
+Examples:
+```
+# Extract plain text
+GET /text/document.pdf?operations=extract
+```
+#### URL as input
+```
+GET /text/fetch_http_url
+```
+#### Parameters
+- `operations`: Set to "extract" for text extraction
+
+Examples:
+```
+# Extract plain text from URL
+GET /text/fetch_http_url?operations=extract
+Content-Type: application/json
+
+{
+    "url": "https://example.com/sample.pdf",
+    "source_format": "pdf"  // Optional: explicitly specify source format
+}
+```
+
+### 2. Synchronous Document Processing
 ```
 POST /doc/{object_key}
 ```
@@ -37,27 +71,6 @@ POST /doc/document.pdf?operations=convert,target_png,source_pdf,quality_95,dpi_4
 # Convert PowerPoint to JPG
 POST /doc/presentation.pptx?operations=convert,target_jpg,source_pptx
 ```
-
-### 2. Text Extraction
-```
-GET /text/{object_key}
-```
-
-#### Parameters
-- `object_key`: The object key (path) of the document in S3 bucket
-- `operations`: Set to "extract" for text extraction
-- `format_<type>`: Output format (plain, json) (default: plain)
-- `include_metadata_<0/1>`: Include document metadata (default: 0)
-
-Examples:
-```
-# Extract plain text
-GET /text/document.pdf?operations=extract
-
-# Extract text with metadata in JSON format
-GET /text/document.docx?operations=extract,format_json,include_metadata_1
-```
-
 ### 3. Asynchronous Document Processing
 ```
 POST /async-doc/{object_key}
@@ -75,10 +88,16 @@ POST /async-doc/large-document.pdf?operations=convert,target_png,source_pdf,qual
 #### Response
 ```json
 {
-  "TaskId": "request-id",
+  "TaskId": "task_id",
   "message": "Document processing task received and started"
 }
 ```
+### For /async-doc/, retrive the taskId and call the task api
+```
+GET /task/{taskId}
+```
+
+For task processing details, see [Task Processor Documentation](../task-processor/README.md)
 
 ## Response Formats
 

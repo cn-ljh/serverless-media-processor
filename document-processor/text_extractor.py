@@ -2,6 +2,7 @@ import json
 import logging
 import tempfile
 import os
+import requests
 from typing import Dict, Any
 from doc_processor import get_file_extension
 from doc_converter import (
@@ -22,6 +23,47 @@ class TextExtractor:
     def __init__(self):
         self.s3_config = S3Config()
         self.s3_client = get_s3_client()
+        
+    def process_url_text_extraction(self, url: str) -> Dict[str, Any]:
+        """
+        Process text extraction request from a URL
+        
+        Args:
+            url: URL of the document to extract text from
+            
+        Returns:
+            Dict containing extracted text and metadata or error
+        """
+        try:
+            # Download file from URL
+            response = requests.get(url)
+            response.raise_for_status()
+            file_data = response.content
+            
+            # Get source format from file extension or content
+            source_format = get_file_extension(url, file_data)
+            
+            # Save to temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{source_format}') as temp_file:
+                temp_file.write(file_data)
+                temp_path = temp_file.name
+            
+            try:
+                # Extract text from temp file
+                result = self.extract_text(temp_path, source_format)
+                return result
+            finally:
+                # Clean up temp file
+                if os.path.exists(temp_path):
+                    os.remove(temp_path)
+                    
+        except Exception as e:
+            error_msg = f"Failed to process URL text extraction: {str(e)}"
+            logger.error(error_msg)
+            return {
+                "success": False,
+                "error": error_msg
+            }
 
     def process_text_extraction(self, object_key: str) -> Dict[str, Any]:
         """
@@ -34,15 +76,15 @@ class TextExtractor:
             Dict containing extracted text and metadata or error
         """
         try:
-            # Get source format from file extension
-            #source_format = object_key.split('.')[-1].lower()
-            source_format = get_file_extension(object_key)
             # Download file from S3
             file_data = download_object_from_s3(
                 self.s3_client,
                 self.s3_config.bucket_name,
                 object_key
             )
+            
+            # Get source format from file extension or content
+            source_format = get_file_extension(object_key, file_data)
             
             # Save to temporary file
             with tempfile.NamedTemporaryFile(delete=False, suffix=f'.{source_format}') as temp_file:

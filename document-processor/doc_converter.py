@@ -226,28 +226,102 @@ def convert_pdf_to_images(pdf_path: str, output_path: str, pages: List[int] = No
         if 'pdf_document' in locals():
             pdf_document.close()
 
+import xml.etree.ElementTree as ET
+
 def extract_text_from_word(doc_path: str) -> str:
-    """Extract text from Word document"""
+    """Extract text from Word document by converting to XML using LibreOffice"""
     logger.info(f"Extracting text from Word document: {doc_path}")
-    doc = Document(doc_path)
-    text_parts = []
     
-    # 处理文档主体
-    for paragraph in doc.paragraphs:
-        if paragraph.text.strip():
-            text_parts.append(paragraph.text.strip())
-    
-    # 处理表格
-    for table in doc.tables:
-        for row in table.rows:
-            row_text = []
-            for cell in row.cells:
-                if cell.text.strip():
-                    row_text.append(cell.text.strip())
-            if row_text:
-                text_parts.append(' | '.join(row_text))
-    
-    return '\n\n'.join(text_parts)
+    # Create a temporary directory for intermediate files
+    with tempfile.TemporaryDirectory() as temp_dir:
+        try:
+            # First convert to XML format
+            cmd = [
+                'libreoffice7.6',
+                '--headless',
+                '--invisible',
+                '--nodefault',
+                '--nolockcheck',
+                '--nologo',
+                '--norestore',
+                '--convert-to', 'xml',  # 转换为XML格式
+                '--outdir', temp_dir,
+                doc_path
+            ]
+            
+            logger.info(f"Converting Word to XML: {' '.join(cmd)}")
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            
+            if result.returncode != 0:
+                error_msg = f"LibreOffice conversion failed: {result.stderr}"
+                logger.error(error_msg)
+                raise ProcessingError(status_code=500, detail=error_msg)
+            
+            # Get the converted XML file path
+            xml_path = os.path.join(
+                temp_dir,
+                os.path.splitext(os.path.basename(doc_path))[0] + '.xml'
+            )
+            
+            if not os.path.exists(xml_path):
+                error_msg = "XML file was not created by LibreOffice"
+                logger.error(error_msg)
+                raise ProcessingError(status_code=500, detail=error_msg)
+            
+            # Parse XML and extract text content with size limit
+            MAX_TEXT_SIZE = 5 * 1024 * 1024  # 5MB limit
+            current_size = 0
+            text_parts = []
+            
+            # Use iterparse to process XML in chunks
+            context = ET.iterparse(xml_path, events=('end',))
+            
+            # Track text elements in LibreOffice XML format
+            for event, elem in context:
+                # LibreOffice XML uses specific namespaces for text content
+                if 'text' in elem.tag:
+                    # Handle paragraph elements
+                    if 'p' in elem.tag or 'h' in elem.tag:
+                        text = ''
+                        # Extract text from all nested text spans
+                        for child in elem.iter():
+                            if 'text' in child.tag and child.text:
+                                text += child.text + ' '
+                            if child.tail:
+                                text += child.tail + ' '
+                    
+                    text = text.strip()
+                    if text:
+                        # Check size limit
+                        text_size = len(text.encode('utf-8'))
+                        if current_size + text_size > MAX_TEXT_SIZE:
+                            logger.warning("Text size limit reached, truncating content")
+                            break
+                        
+                        text_parts.append(text)
+                        current_size += text_size
+                
+                # Clear element to free memory
+                elem.clear()
+            
+            # Clear XML tree
+            del context
+            
+            if not text_parts:
+                logger.warning("No text content found in the document")
+                return "No text content found in the document"
+            
+            # Join with proper spacing and structure
+            return '\n\n'.join(text_parts)
+            
+        except ET.ParseError as e:
+            error_msg = f"Failed to parse XML: {str(e)}"
+            logger.error(error_msg)
+            raise ProcessingError(status_code=500, detail=error_msg)
+        except Exception as e:
+            error_msg = f"Failed to extract text: {str(e)}"
+            logger.error(error_msg)
+            raise ProcessingError(status_code=500, detail=error_msg)
 
 def extract_text_from_ppt(ppt_path: str) -> str:
     """Extract text from PowerPoint document"""

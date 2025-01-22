@@ -6,3 +6,4 @@ python-pptx>=0.6.21
 pandas>=1.3.0
 openpyxl>=3.0.9
 pydantic>=1.8.0
+requests>=2.31.0

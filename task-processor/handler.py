@@ -1,7 +1,7 @@
 import json
 import boto3
 from typing import Dict, Any
-from ddb_operations import get_task_status, ProcessingError
+from ddb_operations import get_task_status, ProcessingError, scan_tasks_by_operation
 from s3_operations import S3Config, get_s3_client, create_presigned_url
 
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -20,8 +20,38 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 })
             }
 
+        # Handle list operation
+        if task_id == "list":
+            operation = event.get('queryStringParameters', {}).get('operations')
+            if not operation:
+                return {
+                    'statusCode': 400,
+                    'body': json.dumps({
+                        'error': 'operation parameter is required for list operation'
+                    })
+                }
+            
+            tasks = scan_tasks_by_operation(operation)
+
+
+            return {
+                'statusCode': 200,
+                'body': json.dumps({
+                    'tasks': [{
+                        'TaskId': task.get('TaskId', {}).get('S'),
+                        'Status': task.get('Status', {}).get('S'),
+                        'TaskType': task.get('TaskType', {}).get('S'),
+                        'Created_at': task.get('Created_at', {}).get('S'),
+                        'Updated_at': task.get('Updated_at', {}).get('S'),
+                        #concat "S3://", task.get('SourceBucket', {}).get('S') , task.get('SourceKey', {}).get('S') as a new string for SourceFile
+                        'SourceFile': "S3://" + task.get('SourceBucket', {}).get('S') + "/" + task.get('SourceKey', {}).get('S'),
+                        'TargetFile': "S3://" + task.get('TargetBucket', {}).get('S') + "/" + task.get('TargetKey', {}).get('S')
+                        } for task in tasks]
+                })
+            }
+
         # Get task information from DynamoDB
-        task_info = get_task_status(task_id, "document")
+        task_info = get_task_status(task_id)
         
         # s3_config = S3Config()
         s3_client = boto3.client('s3')
