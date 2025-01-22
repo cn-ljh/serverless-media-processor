@@ -539,6 +539,9 @@ Outputs:
   ImageEndpoint:
     Description: Image processing endpoint
     Value: !Sub "https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/image/{key}?operations=resize,w_1000/watermark,text_54mI5p2D5omA5pyJ/format,jpg"
+  AsyncImageEndpoint:
+    Description: Async Image processing endpoint
+    Value: !Sub "https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/async-image/{key}?operations=resize,w_1000/watermark,text_54mI5p2D5omA5pyJ/format,jpg"
   DocumentEndpoint:
     Description: Document processing endpoint
     Value: !Sub "https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/doc/{object_key}?operations=convert,target_png,source_docx"
