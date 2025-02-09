@@ -12,6 +12,7 @@ from image_auto_orient import auto_orient_image
 from image_quality import transform_quality
 from image_blindwatermark import add_blind_watermark
 from image_deblindwatermark import extract_blind_watermark
+from image_rotate import rotate_image
 from ddb_operations import create_task_record, update_task_status, TaskStatus
 import json
 
@@ -36,10 +37,12 @@ class ImageResponse:
         self.headers = headers or {}
 
 def parse_operation(operation_str: str) -> tuple[str, dict]:
-    """Parse operation string like 'resize,p_50' or 'format,png' into (operation, params)"""
+    """Parse operation string like 'resize,p_50', 'format,png', or 'rotate,180' into (operation, params)"""
     parts = operation_str.split(',')
     operation = parts[0]
     params = {}
+    
+    # Handle direct numeric parameter for rotate operation
     
     for param in parts[1:]:
         if operation == 'auto-orient':
@@ -48,6 +51,12 @@ def parse_operation(operation_str: str) -> tuple[str, dict]:
                 params['auto'] = int(param)
             except ValueError:
                 raise ValueError("auto-orient parameter must be 0 or 1")
+        elif operation == 'rotate':
+            try:
+                params['degree'] = int(param)   
+            except ValueError:
+                raise ValueError("rotate pamameter must be 90, 180 or 270")
+
         elif '_' in param:
             # Special handling for base64 encoded content parameters
             if param.startswith('text_'):
@@ -124,6 +133,7 @@ def process_image(image_key: str, operations: str = None, task_id: str = None):
             
             for operation_str in operation_chain:
                 operation, params = parse_operation(operation_str)
+                print("operation string:", operation_str)
                 logger.info(f"Processing operation: {operation} with params: {params}")
                 task_type = f'image/{operation}'
 
@@ -323,6 +333,19 @@ def process_image(image_key: str, operations: str = None, task_id: str = None):
                     current_image_data = json.dumps(result).encode('utf-8')
                     content_type = 'application/json'
                     update_task_status(task_id, task_type, TaskStatus.COMPLETED, json.loads(current_image_data)['blindwatermark']['text'])
+                elif operation == 'rotate':
+                    # Get degree value from params
+                    degree = params.get('degree', 90)
+                    if degree not in [90, 180, 270]:
+                        raise ProcessingError(
+                            status_code=400,
+                            detail=f"Invalid rotation degree: {degree}. Must be one of: 90, 180, 270"
+                        )
+                    
+                    rotate_params = {
+                        'degree': degree
+                    }
+                    current_image_data = rotate_image(current_image_data, rotate_params)
                 else:
                     raise ProcessingError(
                         status_code=400,
