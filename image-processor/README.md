@@ -113,8 +113,51 @@ Example:
 ```
 quality,q_85
 ```
+### 6. Rotate (`rotate`)
+Rotates the image clockwise by specified degrees.
 
-### 6. Watermark (`watermark`)
+Parameters:
+- `degree`: Rotation angle (90, 180, or 270 degrees)
+
+Example:
+```
+# Rotate image 90 degrees clockwise
+rotate,degree_90
+
+# Rotate image 180 degrees
+rotate,degree_180
+
+# Rotate image 270 degrees clockwise
+rotate,degree_270
+```
+
+### 7. Blur (`blur`)
+Applies Gaussian blur to the image.
+
+Parameters:
+- `radius_<value>`: Blur radius (positive integer, default: 2)
+
+Example:
+```
+# Apply blur with default radius
+blur
+
+# Apply blur with custom radius
+blur,radius_20
+```
+
+### 8. Grayscale (`grayscale`)
+Converts the image to black and white.
+
+No parameters required.
+
+Example:
+```
+# Convert image to grayscale
+grayscale
+```
+
+### 9. Watermark (`watermark`)
 Adds text or image watermark.
 This API also support async invoke.
 
@@ -144,7 +187,7 @@ watermark,text_Q29weXJpZ2h0,t_50,g_c,size_60
 watermark,text_Q29weXJpZ2h0,rotate_45,shadow_1,color_666666
 ```
 
-### 7. Blind Watermark (`blindwatermark`)
+### 10. Blind Watermark (`blindwatermark`)
 Adds invisible watermark for copyright protection.
 
 Parameters:
@@ -163,7 +206,7 @@ Response:
 }
 ```
 
-### 8. Deblind Watermark (`deblindwatermark`)
+### 11. Deblind Watermark (`deblindwatermark`)
 Extracts invisible watermark from protected image. This is an asynchronous operation.
 
 Example:
@@ -177,6 +220,8 @@ Response:
     "message": "Image processing task received and started"
 }
 ```
+
+
 
 ## Complex Examples
 

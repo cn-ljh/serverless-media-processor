@@ -13,6 +13,8 @@ from image_quality import transform_quality
 from image_blindwatermark import add_blind_watermark
 from image_deblindwatermark import extract_blind_watermark
 from image_rotate import rotate_image
+from Image_blur import blur_image
+from image_grayscale import grayscale_image
 from ddb_operations import create_task_record, update_task_status, TaskStatus
 import json
 
@@ -346,6 +348,25 @@ def process_image(image_key: str, operations: str = None, task_id: str = None):
                         'degree': degree
                     }
                     current_image_data = rotate_image(current_image_data, rotate_params)
+                elif operation == 'blur':
+                    # Get radius value from params
+                    radius = params.get('radius', 2)
+                    try:
+                        radius = int(radius)
+                        if radius <= 0:
+                            raise ValueError("Radius must be positive")
+                    except ValueError as e:
+                        raise ProcessingError(
+                            status_code=400,
+                            detail=f"Invalid blur radius: {str(e)}"
+                        )
+                    
+                    blur_params = {
+                        'radius': radius
+                    }
+                    current_image_data = blur_image(current_image_data, blur_params)
+                elif operation == 'grayscale':
+                    current_image_data = grayscale_image(current_image_data)
                 else:
                     raise ProcessingError(
                         status_code=400,
