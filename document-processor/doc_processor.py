@@ -156,51 +156,57 @@ def get_file_extension(key: str = None, data: bytes = None) -> str:
             s3_client = get_s3_client()
             data = download_object_from_s3(s3_client, s3_config.bucket_name, key)
                     
-        # Check file signatures (magic numbers)
-        if data.startswith(b'%PDF'):
-            return 'pdf'
-        elif data.startswith(b'PK\x03\x04'):
-            # Office Open XML formats (docx, xlsx, pptx)
-            # Need to check internal content
-            with tempfile.NamedTemporaryFile() as temp:
-                temp.write(data)
-                temp.flush()
+        # Use file command for type detection
+        with tempfile.NamedTemporaryFile(suffix='.tmp') as temp:
+            temp.write(data)
+            temp.flush()
+            
+            import subprocess
+            try:
+                # Run file command with MIME type output
+                result = subprocess.run(['file', '--mime-type', temp.name], capture_output=True, text=True, check=True)
+                mime_type = result.stdout.split(': ')[1].strip()
                 
-                try:
-                    Document(temp.name)
-                    return 'docx'
-                except:
-                    try:
-                        Presentation(temp.name)
-                        return 'pptx'
-                    except:
-                        try:
-                            pd.read_excel(temp.name)
-                            return 'xlsx'
-                        except:
-                            pass
-        elif data.startswith(b'\xD0\xCF\x11\xE0\xA1\xB1\x1A\xE1'):
-            # Compound File Binary Format (doc, xls, ppt)
-            # Try opening with different libraries to determine exact type
-            with tempfile.NamedTemporaryFile() as temp:
-                temp.write(data)
-                temp.flush()
-                
-                try:
-                    Document(temp.name)
+                # Map MIME types to file extensions
+                if 'application/msword' in mime_type:
                     return 'doc'
-                except:
+                elif 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' in mime_type:
+                    return 'docx'
+                elif 'application/vnd.ms-powerpoint' in mime_type:
+                    return 'ppt'
+                elif 'application/vnd.openxmlformats-officedocument.presentationml.presentation' in mime_type:
+                    return 'pptx'
+                elif 'application/vnd.ms-excel' in mime_type:
+                    return 'xls'
+                elif 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' in mime_type:
+                    return 'xlsx'
+                elif 'application/pdf' in mime_type:
+                    return 'pdf'
+                
+                # For additional verification of Office formats
+                if any(type in mime_type for type in ['msword', 'ms-excel', 'ms-powerpoint', 'openxmlformats']):
+                    # Try to open with appropriate library for verification
                     try:
-                        Presentation(temp.name)
-                        return 'ppt'
-                    except:
+                        Document(temp.name)
+                        return 'doc' if 'msword' in mime_type else 'docx'
+                    except Exception:
                         try:
-                            pd.read_excel(temp.name)
-                            return 'xls'
-                        except:
-                            pass
-        elif is_text_file(data):
-            return 'txt' 
+                            Presentation(temp.name)
+                            return 'ppt' if 'ms-powerpoint' in mime_type else 'pptx'
+                        except Exception:
+                            try:
+                                pd.read_excel(temp.name)
+                                return 'xls' if 'ms-excel' in mime_type else 'xlsx'
+                            except Exception:
+                                pass
+                
+                # Check for text files
+                if is_text_file(data):
+                    return 'txt'
+            except subprocess.CalledProcessError as e:
+                logger.error(f"File command failed: {e.stderr}")
+            except Exception as e:
+                logger.error(f"Error during file type detection: {str(e)}")
         
         raise ProcessingError(
             status_code=400,
