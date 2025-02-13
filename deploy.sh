@@ -17,9 +17,31 @@ echo "Starting deployment process in China Northwest (Ningxia) region..."
 # Install dependencies for task processor
 echo "Installing task processor dependencies..."
 cd task-processor
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+
+# Remove existing venv if it exists
+rm -rf .venv
+
+# Create new virtual environment
+echo "Creating virtual environment..."
+python3 -m venv .venv || {
+    echo "Failed to create virtual environment"
+    exit 1
+}
+
+# Activate virtual environment
+echo "Activating virtual environment..."
+source .venv/bin/activate || {
+    echo "Failed to activate virtual environment"
+    exit 1
+}
+
+# Install requirements with verbose output
+echo "Installing requirements..."
+pip install -v -r requirements.txt || {
+    echo "Failed to install requirements"
+    exit 1
+}
+
 deactivate
 cd ..
 
