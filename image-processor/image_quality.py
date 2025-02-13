@@ -2,6 +2,43 @@ from PIL import Image
 import io
 from fastapi import HTTPException
 
+def get_image_quality(image_data: bytes) -> dict:
+    """
+    Get image quality information from an image
+    
+    Args:
+        image_data: Image bytes
+            
+    Returns:
+        Dictionary containing quality information:
+        - format: Image format (JPEG, WebP, etc.)
+        - quality: Estimated quality (1-100) for JPEG/WebP, None for other formats
+        - mode: Color mode of the image (RGB, RGBA, etc.)
+        - size: Image dimensions (width, height)
+    """
+    try:
+        # Open image
+        img = Image.open(io.BytesIO(image_data))
+        
+        quality_info = {
+            'format': img.format,
+            'quality': 95,
+            'mode': img.mode,
+            'size': img.size
+        }
+        
+        # Get quality for JPEG/WebP
+        if img.format in ['JPEG', 'WEBP']:
+            # Try to get quality from image info
+            quality = img.info.get('quality')
+            if quality is not None:
+                quality_info['quality'] = quality
+            
+        return quality_info
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get image quality: {str(e)}")
+
 def transform_quality(image_data: bytes, quality_params: dict) -> bytes:
     """
     Transform image quality using relative or absolute quality parameters

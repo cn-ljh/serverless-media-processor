@@ -1,7 +1,7 @@
 from PIL import Image, ImageFilter
 import io
 
-def blur_image(image_data: bytes, params: dict) -> bytes:
+def blur_image(image_data: bytes, params: dict, quality: int = 95) -> bytes:
     """
     Apply Gaussian blur to an image.
     
@@ -24,5 +24,9 @@ def blur_image(image_data: bytes, params: dict) -> bytes:
     
     # Save to bytes
     output = io.BytesIO()
-    blurred_image.save(output, format=image.format or 'JPEG')
+    save_format = image.format or 'JPEG'
+    if save_format.upper() == 'JPEG':
+        blurred_image.save(output, format=save_format, quality=quality, subsampling=0)
+    else:
+        blurred_image.save(output, format=save_format)
     return output.getvalue()

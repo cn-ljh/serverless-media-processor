@@ -2,6 +2,8 @@ import os
 import hashlib
 import logging
 import base64
+import io
+from PIL import Image
 
 from image_resizer import resize_image, ResizeMode
 from image_cropper import crop_image
@@ -9,7 +11,7 @@ from s3_operations import S3Config, get_s3_client, download_object_from_s3, uplo
 from image_watermark import add_watermark
 from image_format_converter import convert_format
 from image_auto_orient import auto_orient_image
-from image_quality import transform_quality
+from image_quality import transform_quality, get_image_quality
 from image_blindwatermark import add_blind_watermark
 from image_deblindwatermark import extract_blind_watermark
 from image_rotate import rotate_image
@@ -99,6 +101,19 @@ def get_content_type(format_str: str) -> str:
     }
     return format_map.get(format_str.lower(), 'image/jpeg')
 
+def save_image_with_quality(img: Image.Image, format: str, quality: int = None) -> bytes:
+    """Save image with original quality if available"""
+    buffer = io.BytesIO()
+    save_kwargs = {}
+    
+    if format.upper() in ['JPEG', 'WEBP'] and quality is not None:
+        save_kwargs['quality'] = quality
+        if format.upper() == 'WEBP':
+            save_kwargs['method'] = 6
+    
+    img.save(buffer, format=format, **save_kwargs)
+    return buffer.getvalue()
+
 def process_image(image_key: str, operations: str = None, task_id: str = None):
     """
     Process an image with chained operations.
@@ -117,7 +132,6 @@ def process_image(image_key: str, operations: str = None, task_id: str = None):
     """
     try:
         # Create task record if task_id is provided
-
         s3_config = S3Config()
         s3_client = get_s3_client()
 
@@ -127,6 +141,10 @@ def process_image(image_key: str, operations: str = None, task_id: str = None):
         current_image_data = image_data
         content_type = None
         target_key = ""
+
+        # Get original image quality
+        quality_info = get_image_quality(image_data)
+        original_quality = quality_info['quality']
 
         # Process operations if provided
         if operations:
@@ -143,7 +161,8 @@ def process_image(image_key: str, operations: str = None, task_id: str = None):
                     orient_params = {
                         'auto': params.get('auto', 0)
                     }
-                    current_image_data = auto_orient_image(current_image_data, orient_params)
+                    current_image_data = auto_orient_image(current_image_data, orient_params, original_quality)
+
                 
                 elif operation == 'resize':
                     resize_params = {}
@@ -176,7 +195,9 @@ def process_image(image_key: str, operations: str = None, task_id: str = None):
                         resize_params['color'] = color
                     
                     logger.info(f"Resize parameters: {resize_params}")
-                    current_image_data = resize_image(current_image_data, resize_params)    
+                    current_image_data = resize_image(current_image_data, resize_params, original_quality)
+                    
+                
                 elif operation == 'crop':
                     crop_params = {
                         'w': params.get('w'),
@@ -186,7 +207,7 @@ def process_image(image_key: str, operations: str = None, task_id: str = None):
                         'g': params.get('g', 'nw'),
                         'p': params.get('p', 100)
                     }
-                    current_image_data = crop_image(current_image_data, crop_params)
+                    current_image_data = crop_image(current_image_data, crop_params, original_quality)
                     
                 elif operation == 'watermark':
                     target_key = f'watermark/{image_key}'
@@ -239,8 +260,8 @@ def process_image(image_key: str, operations: str = None, task_id: str = None):
                     else:
                         watermark_params['text'] = 'Watermark'  # Default text if neither specified
                         
-                    current_image_data = add_watermark(current_image_data, **watermark_params)
-                    
+                    current_image_data = add_watermark(current_image_data, original_quality, **watermark_params)
+                  
                     # Upload to S3
                     upload_object_to_s3(
                         client=s3_client,
@@ -253,9 +274,9 @@ def process_image(image_key: str, operations: str = None, task_id: str = None):
                 elif operation == 'format':
                     format_params = {
                         'f': params.get('f', 'jpg'),
-                        'q': params.get('q', 85)
+                        'q': params.get('q', original_quality if original_quality else 95)
                     }
-                    current_image_data = convert_format(current_image_data, format_params)
+                    current_image_data = convert_format(current_image_data, format_params, original_quality)
                     content_type = get_content_type(format_params['f'])
                 
                 elif operation == 'quality':
@@ -309,8 +330,7 @@ def process_image(image_key: str, operations: str = None, task_id: str = None):
                         'd1': params.get('d1', 30),
                         'd2': params.get('d2', 20)
                     }
-                    current_image_data = add_blind_watermark(current_image_data, **watermark_params)
-                    # Create new object key with bwm prefix
+                    current_image_data = add_blind_watermark(current_image_data, original_quality, **watermark_params)
                     
                     # Upload to S3
                     upload_object_to_s3(
@@ -335,6 +355,7 @@ def process_image(image_key: str, operations: str = None, task_id: str = None):
                     current_image_data = json.dumps(result).encode('utf-8')
                     content_type = 'application/json'
                     update_task_status(task_id, task_type, TaskStatus.COMPLETED, json.loads(current_image_data)['blindwatermark']['text'])
+                
                 elif operation == 'rotate':
                     # Get degree value from params
                     degree = params.get('degree', 90)
@@ -347,7 +368,8 @@ def process_image(image_key: str, operations: str = None, task_id: str = None):
                     rotate_params = {
                         'degree': degree
                     }
-                    current_image_data = rotate_image(current_image_data, rotate_params)
+                    current_image_data = rotate_image(current_image_data, rotate_params, original_quality)
+                
                 elif operation == 'blur':
                     # Get radius value from params
                     radius = params.get('radius', 2)
@@ -364,14 +386,18 @@ def process_image(image_key: str, operations: str = None, task_id: str = None):
                     blur_params = {
                         'radius': radius
                     }
-                    current_image_data = blur_image(current_image_data, blur_params)
+                    current_image_data = blur_image(current_image_data, blur_params, original_quality)
+
+                
                 elif operation == 'grayscale':
-                    current_image_data = grayscale_image(current_image_data)
+                    current_image_data = grayscale_image(current_image_data, original_quality)
+                
                 else:
                     raise ProcessingError(
                         status_code=400,
                         detail=f"Unknown operation: {operation}"
                     )
+        
         # If no format operation was specified, determine content type from file extension
         if content_type is None:
             _, file_extension = os.path.splitext(image_key)

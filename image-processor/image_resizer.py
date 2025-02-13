@@ -26,7 +26,7 @@ def validate_size_param(value: int, param_name: str) -> int:
         raise ValueError(f"{param_name} must be between 1 and 16384")
     return value
 
-def resize_image(image_data: bytes, resize_params: dict) -> bytes:
+def resize_image(image_data: bytes, resize_params: dict, quality: int=95) -> bytes:
     try:
         img = Image.open(io.BytesIO(image_data))
         original_width, original_height = img.size
@@ -208,7 +208,11 @@ def resize_image(image_data: bytes, resize_params: dict) -> bytes:
             raise ValueError("Invalid resize parameters")
 
         buffer = io.BytesIO()
-        img.save(buffer, format=img.format or 'PNG')
+        save_format = img.format or 'PNG'
+        if save_format.upper() == 'JPEG':
+            img.save(buffer, format=save_format, quality=quality, subsampling=0)
+        else:
+            img.save(buffer, format=save_format)
         final_size = len(buffer.getvalue())
         logger.info(f"Image processing completed. Final size: {final_size} bytes")
         return buffer.getvalue()

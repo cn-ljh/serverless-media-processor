@@ -1,7 +1,7 @@
 from PIL import Image
 import io
 
-def rotate_image(image_data: bytes, params: dict) -> bytes:
+def rotate_image(image_data: bytes, params: dict, quality: int=100) -> bytes:
     """
     Rotate an image by specified degrees clockwise.
     
@@ -26,6 +26,10 @@ def rotate_image(image_data: bytes, params: dict) -> bytes:
     
     # Save the rotated image to bytes
     output = io.BytesIO()
-    rotated_image.save(output, format=image.format if image.format else 'JPEG')
+    save_format = image.format if image.format else 'JPEG'
+    if save_format.upper() == 'JPEG':
+        rotated_image.save(output, format=save_format, quality=quality, subsampling=0)
+    else:
+        rotated_image.save(output, format=save_format)
     
     return output.getvalue()

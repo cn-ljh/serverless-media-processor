@@ -27,9 +27,6 @@ def handler(event: Dict[str, Any], context:Any) -> Dict[str, Any]:
         is_async = request_path.startswith('/async-image/')
         # Generate or get task ID for async processing
         task_id = event.get("TaskId", str(uuid.uuid4())) if is_async else str(uuid.uuid4())
-        
-        # For sync requests, process and return the image
-        processed_image = process_image(object_key, operations_str, task_id)
 
         if is_async:
             # For async requests, return task information

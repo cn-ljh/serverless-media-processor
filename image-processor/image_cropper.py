@@ -56,7 +56,7 @@ def calculate_crop_coordinates(
 
     return (x1, y1, x2, y2)
 
-def crop_image(image_data: bytes, crop_params: dict) -> bytes:
+def crop_image(image_data: bytes, crop_params: dict, quality: int = 95) -> bytes:
     """
     Crop image with specified parameters
     
@@ -115,7 +115,11 @@ def crop_image(image_data: bytes, crop_params: dict) -> bytes:
 
         # Save the result
         buffer = io.BytesIO()
-        img.save(buffer, format=img.format or 'JPEG')
+        save_format = img.format or 'JPEG'
+        if save_format.upper() == 'JPEG':
+            img.save(buffer, format=save_format, quality=quality, subsampling=0)
+        else:
+            img.save(buffer, format=save_format)
         return buffer.getvalue()
 
     except Exception as e:

@@ -118,7 +118,7 @@ class WatermarkProcessor:
     def __init__(self):
         self.font_path = os.path.join(os.path.dirname(__file__), 'font', '华文楷体.ttf')
 
-    def process_image(self, image_data: bytes, watermarks: List[Union[ImageWatermarkParams, TextWatermarkParams]], 
+    def process_image(self, image_data: bytes, watermarks: List[Union[ImageWatermarkParams, TextWatermarkParams]], quality,
                      combined_params: Optional[CombinedWatermarkParams] = None) -> bytes:
         """Process image with watermarks"""
         if len(watermarks) > self.MAX_WATERMARKS:
@@ -157,10 +157,10 @@ class WatermarkProcessor:
 
         # Save to bytes with high quality
         output_bytes = BytesIO()
-        save_params = {'format': image.format or 'JPEG'}
-        if save_params['format'] == 'JPEG':
-            save_params['quality'] = 95
-            save_params['optimize'] = True
+        save_format = image.format or 'JPEG'
+        save_params = {'format': save_format}
+        if save_format == 'JPEG':
+            save_params['quality'] = quality
         elif save_params['format'] == 'PNG':
             save_params['optimize'] = True
         output.save(output_bytes, **save_params)
@@ -384,7 +384,7 @@ class WatermarkProcessor:
 
         return (x, y)
 
-def add_watermark(image_data: bytes, text: str = None, image: str = None, color: str = "FFFFFF", **kwargs) -> bytes:
+def add_watermark(image_data: bytes, quality: int=95, text: str = None, image: str = None, color: str = "FFFFFF", **kwargs) -> bytes:
     """
     Legacy interface for backward compatibility
     
@@ -419,4 +419,4 @@ def add_watermark(image_data: bytes, text: str = None, image: str = None, color:
                        if k in {'t', 'g', 'x', 'y', 'voffset', 'fill', 'padx', 'pady', 'P'}}
         watermarks.append(ImageWatermarkParams(image=image_str, **image_params))
         
-    return processor.process_image(image_data, watermarks)
+    return processor.process_image(image_data, watermarks, quality)

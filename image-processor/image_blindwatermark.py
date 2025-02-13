@@ -10,7 +10,7 @@ from ddb_operations import create_watermark_record
 
 logger = logging.getLogger(__name__)
 
-def add_blind_watermark(image_data: bytes, original_object_key: str, text: str = 'Protected', 
+def add_blind_watermark(image_data: bytes, quality: int=95, text: str = 'Protected', 
                        password_wm: int = 1234, password_img: int = 1234, 
                        block_shape: tuple = (4, 4), d1: int = 30, d2: int = 20) -> tuple[bytes, str]:
     """
@@ -50,7 +50,7 @@ def add_blind_watermark(image_data: bytes, original_object_key: str, text: str =
             # # Resize image
             # resized_img = img.resize((FIXED_WIDTH, FIXED_HEIGHT), Image.Resampling.LANCZOS)
             # resized_img.save(normalized_path, quality=95)
-            img.save(normalized_path, quality=100)
+            img.save(normalized_path, quality=quality)
         
         # Apply watermark with more robust parameters
         bwm = WaterMark(password_wm=password_wm, password_img=password_img, block_shape=block_shape)

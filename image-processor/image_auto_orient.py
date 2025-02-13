@@ -2,7 +2,7 @@ from PIL import Image
 import io
 from fastapi import HTTPException
 
-def auto_orient_image(image_data: bytes, orient_params: dict) -> bytes:
+def auto_orient_image(image_data: bytes, orient_params: dict, quality: int = 95) -> bytes:
     """
     Apply auto-orientation to image based on EXIF data
     
@@ -27,7 +27,11 @@ def auto_orient_image(image_data: bytes, orient_params: dict) -> bytes:
         # If auto-orient is disabled or image has no EXIF, return original
         if auto_orient == 0 or not hasattr(img, '_getexif') or img._getexif() is None:
             buffer = io.BytesIO()
-            img.save(buffer, format=img.format or 'JPEG')
+            save_format = img.format or 'JPEG'
+            if save_format.upper() == 'JPEG':
+                img.save(buffer, format=save_format, quality=quality, subsampling=0)
+            else:
+                img.save(buffer, format=save_format)
             return buffer.getvalue()
 
         # EXIF orientation tag
@@ -62,7 +66,11 @@ def auto_orient_image(image_data: bytes, orient_params: dict) -> bytes:
 
         # Save processed image
         buffer = io.BytesIO()
-        img.save(buffer, format=img.format or 'JPEG')
+        save_format = img.format or 'JPEG'
+        if save_format.upper() == 'JPEG':
+            img.save(buffer, quality, format=save_format, subsampling=0)
+        else:
+            img.save(buffer, format=save_format)
         return buffer.getvalue()
 
     except Exception as e:

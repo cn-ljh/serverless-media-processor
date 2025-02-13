@@ -13,7 +13,7 @@ class ImageFormat(str, Enum):
     GIF = "gif"
     TIFF = "tiff"
 
-def convert_format(image_data: bytes, format_params: dict) -> bytes:
+def convert_format(image_data: bytes, format_params: dict, quality: int = 95) -> bytes:
     """
     Convert image to specified format
     
@@ -46,12 +46,12 @@ def convert_format(image_data: bytes, format_params: dict) -> bytes:
         if not target_format:
             target_format = 'jpg'  # default format
             
-        quality = format_params.get('q', 85)
+        output_quality = format_params.get('q', quality)
 
         # Validate parameters
         if target_format not in [f.value for f in ImageFormat]:
             raise ValueError(f"Unsupported format: {target_format}")
-        if not 1 <= quality <= 100:
+        if not 1 <= output_quality <= 100:
             raise ValueError("Quality must be between 1 and 100")
 
         # Open image
@@ -67,7 +67,7 @@ def convert_format(image_data: bytes, format_params: dict) -> bytes:
                 background.paste(img, mask=img.split()[3])
                 img = background
             save_format = 'JPEG'
-            save_kwargs = {'quality': quality, 'optimize': True}
+            save_kwargs = {'quality': output_quality, 'optimize': True}
         
         elif target_format == 'png':
             save_format = 'PNG'
@@ -75,7 +75,7 @@ def convert_format(image_data: bytes, format_params: dict) -> bytes:
         
         elif target_format == 'webp':
             save_format = 'WEBP'
-            save_kwargs = {'quality': quality, 'method': 6}
+            save_kwargs = {'quality': output_quality, 'method': 6}
         
         elif target_format == 'bmp':
             save_format = 'BMP'
@@ -87,7 +87,7 @@ def convert_format(image_data: bytes, format_params: dict) -> bytes:
         
         elif target_format == 'tiff':
             save_format = 'TIFF'
-            save_kwargs = {'quality': quality}
+            save_kwargs = {'quality': output_quality}
 
         # Save in new format
         buffer = io.BytesIO()
