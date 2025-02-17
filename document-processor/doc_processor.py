@@ -147,6 +147,7 @@ def get_file_extension(key: str = None, data: bytes = None) -> str:
     if key:
         ext = os.path.splitext(key)[1][1:].lower()
         if ext:
+            logger.info(f"Found extension from key: {ext}")
             return ext
         
     # If no extension or no key, try to detect format from content
@@ -156,26 +157,91 @@ def get_file_extension(key: str = None, data: bytes = None) -> str:
             s3_client = get_s3_client()
             data = download_object_from_s3(s3_client, s3_config.bucket_name, key)
                     
-        # Use file command for type detection
+        import subprocess
+        
+        # First try MIME type detection for PowerPoint files
+        logger.info("Attempting MIME type detection for PowerPoint files...")
         with tempfile.NamedTemporaryFile(suffix='.tmp') as temp:
             temp.write(data)
             temp.flush()
             
-            import subprocess
             try:
-                # Run file command with MIME type output
                 result = subprocess.run(['file', '--mime-type', temp.name], capture_output=True, text=True, check=True)
                 mime_type = result.stdout.split(': ')[1].strip()
+                logger.info(f"Detected MIME type: {mime_type}")
+                
+                # Check for PowerPoint formats first
+                if 'application/vnd.ms-powerpoint' in mime_type:
+                    logger.info("Detected as PPT format (old PowerPoint)")
+                    return 'ppt'
+                elif 'application/vnd.openxmlformats-officedocument.presentationml.presentation' in mime_type:
+                    logger.info("Detected as PPTX format (modern PowerPoint)")
+                    return 'pptx'
+            except Exception as e:
+                logger.debug(f"MIME type detection failed: {str(e)}")
+        
+        logger.info("Attempting to detect modern Office formats...")
+        # Try modern Office formats
+        for test_ext in ['.docx', '.pptx', '.xlsx']:
+            with tempfile.NamedTemporaryFile(suffix=test_ext) as temp:
+                temp.write(data)
+                temp.flush()
+                logger.debug(f"Testing with extension: {test_ext}")
+                
+                try:
+                    if test_ext == '.docx':
+                        Document(temp.name)
+                        logger.info("Detected as DOCX format")
+                        return 'docx'
+                    elif test_ext == '.pptx':
+                        Presentation(temp.name)
+                        logger.info("Detected as PPTX format")
+                        return 'pptx'
+                    elif test_ext == '.xlsx':
+                        pd.read_excel(temp.name)
+                        logger.info("Detected as XLSX format")
+                        return 'xlsx'
+                except Exception as e:
+                    logger.debug(f"Not a {test_ext} file: {str(e)}")
+                    continue
+        
+        logger.info("Attempting to detect older Office formats...")
+        # Try older formats (except PowerPoint which was handled by MIME type)
+        for test_ext in ['.doc', '.xls']:
+            with tempfile.NamedTemporaryFile(suffix=test_ext) as temp:
+                temp.write(data)
+                temp.flush()
+                logger.debug(f"Testing with extension: {test_ext}")
+                
+                try:
+                    if test_ext == '.doc':
+                        Document(temp.name)
+                        logger.info("Detected as DOC format")
+                        return 'doc'
+                    elif test_ext == '.xls':
+                        pd.read_excel(temp.name)
+                        logger.info("Detected as XLS format")
+                        return 'xls'
+                except Exception as e:
+                    logger.debug(f"Not a {test_ext} file: {str(e)}")
+                    continue
+        
+        logger.info("Attempting final MIME type detection...")
+        # Final MIME type detection for remaining formats
+        with tempfile.NamedTemporaryFile(suffix='.tmp') as temp:
+            temp.write(data)
+            temp.flush()
+            
+            try:
+                result = subprocess.run(['file', '--mime-type', temp.name], capture_output=True, text=True, check=True)
+                mime_type = result.stdout.split(': ')[1].strip()
+                logger.info(f"Detected MIME type: {mime_type}")
                 
                 # Map MIME types to file extensions
                 if 'application/msword' in mime_type:
                     return 'doc'
                 elif 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' in mime_type:
                     return 'docx'
-                elif 'application/vnd.ms-powerpoint' in mime_type:
-                    return 'ppt'
-                elif 'application/vnd.openxmlformats-officedocument.presentationml.presentation' in mime_type:
-                    return 'pptx'
                 elif 'application/vnd.ms-excel' in mime_type:
                     return 'xls'
                 elif 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' in mime_type:
@@ -183,31 +249,16 @@ def get_file_extension(key: str = None, data: bytes = None) -> str:
                 elif 'application/pdf' in mime_type:
                     return 'pdf'
                 
-                # For additional verification of Office formats
-                if any(type in mime_type for type in ['msword', 'ms-excel', 'ms-powerpoint', 'openxmlformats']):
-                    # Try to open with appropriate library for verification
-                    try:
-                        Document(temp.name)
-                        return 'doc' if 'msword' in mime_type else 'docx'
-                    except Exception:
-                        try:
-                            Presentation(temp.name)
-                            return 'ppt' if 'ms-powerpoint' in mime_type else 'pptx'
-                        except Exception:
-                            try:
-                                pd.read_excel(temp.name)
-                                return 'xls' if 'ms-excel' in mime_type else 'xlsx'
-                            except Exception:
-                                pass
-                
                 # Check for text files
                 if is_text_file(data):
+                    logger.info("Detected as text file")
                     return 'txt'
             except subprocess.CalledProcessError as e:
                 logger.error(f"File command failed: {e.stderr}")
             except Exception as e:
                 logger.error(f"Error during file type detection: {str(e)}")
         
+        logger.error("Could not determine file format")
         raise ProcessingError(
             status_code=400,
             detail="Could not determine file format. Please specify format explicitly."
@@ -216,6 +267,7 @@ def get_file_extension(key: str = None, data: bytes = None) -> str:
     except Exception as e:
         if isinstance(e, ProcessingError):
             raise
+        logger.error(f"Error detecting file format: {str(e)}")
         raise ProcessingError(
             status_code=500,
             detail=f"Error detecting file format: {str(e)}"

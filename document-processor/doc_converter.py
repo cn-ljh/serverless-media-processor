@@ -12,7 +12,7 @@ from pptx import Presentation
 import pandas as pd
 from b64encoder_decoder import custom_b64decode
 
-# 设置日志
+# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -99,13 +99,13 @@ def convert_to_pdf(input_path: str, output_path: str, source_format: SourceForma
     try:
         logger.info(f"Converting {source_format} to PDF: {input_path} -> {output_path}")
         
-        # 对于PDF文件，直接复制
+        # For PDF files, copy directly
         if source_format == SourceFormat.PDF:
             with open(input_path, 'rb') as src, open(output_path, 'wb') as dst:
                 dst.write(src.read())
             return
 
-        # 使用LibreOffice进行转换
+        # Use LibreOffice for conversion
         cmd = [
             'libreoffice7.6',
             '--headless',
@@ -128,7 +128,7 @@ def convert_to_pdf(input_path: str, output_path: str, source_format: SourceForma
             logger.error(error_msg)
             raise ProcessingError(status_code=500, detail=error_msg)
         
-        # 重命名输出文件
+        # Rename output file
         temp_pdf = os.path.join(
             os.path.dirname(output_path),
             os.path.splitext(os.path.basename(input_path))[0] + '.pdf'
@@ -164,17 +164,17 @@ def convert_pdf_to_images(pdf_path: str, output_path: str, pages: List[int] = No
             
             page = pdf_document[page_num - 1]
             
-            # 计算合适的缩放因子
+            # Calculate appropriate zoom factor
             zoom = dpi/72
             mat = fitz.Matrix(zoom, zoom)
             
             try:
-                # 获取页面图像
+                # Get page image
                 pix = page.get_pixmap(matrix=mat, alpha=False)
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
                 images.append(img)
                 
-                # 清理
+                # Cleanup
                 del pix
                 
             except Exception as e:
@@ -186,7 +186,7 @@ def convert_pdf_to_images(pdf_path: str, output_path: str, pages: List[int] = No
             logger.error(error_msg)
             raise ProcessingError(status_code=400, detail=error_msg)
         
-        # 保存图像
+        # Save images
         if format.upper() == 'PDF':
             logger.info("Saving images as PDF")
             images[0].save(
@@ -244,7 +244,7 @@ def extract_text_from_word(doc_path: str) -> str:
                 '--nolockcheck',
                 '--nologo',
                 '--norestore',
-                '--convert-to', 'xml',  # 转换为XML格式
+                '--convert-to', 'xml',  # Convert to XML format
                 '--outdir', temp_dir,
                 doc_path
             ]
@@ -326,21 +326,117 @@ def extract_text_from_word(doc_path: str) -> str:
 def extract_text_from_ppt(ppt_path: str) -> str:
     """Extract text from PowerPoint document"""
     logger.info(f"Extracting text from PowerPoint document: {ppt_path}")
-    prs = Presentation(ppt_path)
-    text_parts = []
     
-    for i, slide in enumerate(prs.slides, 1):
-        slide_text = []
-        slide_text.append(f"\n[Slide {i}]")
-        
-        for shape in slide.shapes:
-            if hasattr(shape, "text") and shape.text.strip():
-                slide_text.append(shape.text.strip())
-        
-        if len(slide_text) > 1:
-            text_parts.extend(slide_text)
-    
-    return '\n'.join(text_parts)
+    # Check if it's a .ppt file
+    if ppt_path.lower().endswith('.ppt'):
+        logger.info("Detected .ppt format, using LibreOffice for text extraction")
+        # Create a temporary directory for intermediate files
+        with tempfile.TemporaryDirectory() as temp_dir:
+            try:
+                # First convert to XML format
+                cmd = [
+                    'libreoffice7.6',
+                    '--headless',
+                    '--invisible',
+                    '--nodefault',
+                    '--nolockcheck',
+                    '--nologo',
+                    '--norestore',
+                    '--convert-to', 'xml',  # Convert to XML format
+                    '--outdir', temp_dir,
+                    ppt_path
+                ]
+                
+                logger.info(f"Converting PPT to XML: {' '.join(cmd)}")
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                
+                if result.returncode != 0:
+                    error_msg = f"LibreOffice conversion failed: {result.stderr}"
+                    logger.error(error_msg)
+                    raise ProcessingError(status_code=500, detail=error_msg)
+                
+                # Get the converted XML file path
+                xml_path = os.path.join(
+                    temp_dir,
+                    os.path.splitext(os.path.basename(ppt_path))[0] + '.xml'
+                )
+                
+                if not os.path.exists(xml_path):
+                    error_msg = "XML file was not created by LibreOffice"
+                    logger.error(error_msg)
+                    raise ProcessingError(status_code=500, detail=error_msg)
+                
+                # Parse XML and extract text content
+                text_parts = []
+                current_slide = 0
+                
+                # Use iterparse to process XML in chunks
+                context = ET.iterparse(xml_path, events=('end',))
+                
+                for event, elem in context:
+                    # Look for page/slide elements
+                    if 'page' in elem.tag:
+                        current_slide += 1
+                        slide_text = [f"\n[Slide {current_slide}]"]
+                        
+                        # Extract text from all text elements in the slide
+                        for text_elem in elem.iter():
+                            if 'text' in text_elem.tag and text_elem.text:
+                                text = text_elem.text.strip()
+                                if text:
+                                    slide_text.append(text)
+                        
+                        if len(slide_text) > 1:  # Only add slides with content
+                            text_parts.extend(slide_text)
+                        
+                        # Clear element to free memory
+                        elem.clear()
+                
+                # Clear XML tree
+                del context
+                
+                if not text_parts:
+                    logger.warning("No text content found in the presentation")
+                    return "No text content found in the presentation"
+                
+                return '\n'.join(text_parts)
+                
+            except ET.ParseError as e:
+                error_msg = f"Failed to parse XML: {str(e)}"
+                logger.error(error_msg)
+                raise ProcessingError(status_code=500, detail=error_msg)
+            except Exception as e:
+                error_msg = f"Failed to extract text: {str(e)}"
+                logger.error(error_msg)
+                raise ProcessingError(status_code=500, detail=error_msg)
+    else:
+        # For .pptx files, use python-pptx
+        logger.info("Using python-pptx for text extraction")
+        try:
+            prs = Presentation(ppt_path)
+            text_parts = []
+            
+            for i, slide in enumerate(prs.slides, 1):
+                slide_text = []
+                slide_text.append(f"\n[Slide {i}]")
+                
+                for shape in slide.shapes:
+                    if hasattr(shape, "text") and shape.text.strip():
+                        slide_text.append(shape.text.strip())
+                
+                if len(slide_text) > 1:  # Only add slides with content
+                    text_parts.extend(slide_text)
+            
+            if not text_parts:
+                logger.warning("No text content found in the presentation")
+                return "No text content found in the presentation"
+                
+            return '\n'.join(text_parts)
+            
+        except Exception as e:
+            error_msg = f"Failed to extract text: {str(e)}"
+            logger.error(error_msg)
+            raise ProcessingError(status_code=500, detail=error_msg)
 
 
 def extract_text_from_excel(excel_path: str) -> str:
@@ -406,7 +502,7 @@ def convert_pdf_to_text(pdf_path: str, output_path: str, pages: List[int] = None
             
             page = pdf_document[page_num - 1]
             page_text = page.get_text()
-            if page_text.strip():  # 只添加非空页面
+            if page_text.strip():  # Only add non-empty pages
                 text.append(f"[Page {page_num}]\n{page_text}")
         
         if text:
@@ -443,7 +539,7 @@ def convert_document(input_path: str, output_path: str, source_format: SourceFor
         
     Supported conversions:
         - All formats -> PDF
-        - All formats -> PNG/JPG (通过先转换为PDF再转换为图片)
+        - All formats -> PNG/JPG (by converting to PDF first then to image)
         - Word/PPT/PDF -> TXT
     """
     logger.info(f"Converting document: {input_path} ({source_format}) -> {output_path} ({target_format})")
@@ -451,31 +547,45 @@ def convert_document(input_path: str, output_path: str, source_format: SourceFor
     # Create temporary directory for intermediate files
     with tempfile.TemporaryDirectory() as temp_dir:
         try:
-            # 处理文本提取
+            # Handle text extraction
             if target_format == TargetFormat.TXT:
+                # Extract text based on source format
                 if source_format in [SourceFormat.DOC, SourceFormat.DOCX, SourceFormat.WPS]:
-                    logger.info("直接从Word文档提取文本")
+                    logger.info("Extracting text directly from Word document")
                     text = extract_text_from_word(input_path)
-                    with open(output_path, 'w', encoding='utf-8') as f:
-                        f.write(text)
-                    return
                 elif source_format in [SourceFormat.PPT, SourceFormat.PPTX, SourceFormat.DPS]:
-                    logger.info("直接从PPT文档提取文本")
+                    logger.info("Extracting text directly from PowerPoint document")
                     text = extract_text_from_ppt(input_path)
-                    with open(output_path, 'w', encoding='utf-8') as f:
-                        f.write(text)
+                else:
+                    # Convert to PDF first then extract text
+                    if source_format != SourceFormat.PDF:
+                        logger.info(f"Converting {source_format} to PDF")
+                        temp_pdf = os.path.join(temp_dir, 'temp.pdf')
+                        convert_to_pdf(input_path, temp_pdf, source_format)
+                        pdf_path = temp_pdf
+                    else:
+                        pdf_path = input_path
+                    
+                    logger.info("Extracting text from PDF")
+                    convert_pdf_to_text(pdf_path, output_path, pages)
                     return
+
+                # Write extracted text to file
+                logger.info("Writing extracted text to file")
+                with open(output_path, 'w', encoding='utf-8') as f:
+                    f.write(text)
+                return
             
-            # 处理文档转换
+            # Handle document conversion
             if target_format == TargetFormat.PDF:
                 if source_format == SourceFormat.PDF and not pages:
-                    logger.info("直接复制PDF文件")
+                    logger.info("Copying PDF file directly")
                     with open(input_path, 'rb') as src, open(output_path, 'wb') as dst:
                         dst.write(src.read())
                 else:
-                    # 先转换为PDF（如果源格式不是PDF）
+                    # Convert to PDF first if needed
                     if source_format != SourceFormat.PDF:
-                        logger.info(f"将{source_format}转换为PDF")
+                        logger.info(f"Converting {source_format} to PDF")
                         temp_pdf = os.path.join(temp_dir, 'temp.pdf')
                         convert_to_pdf(input_path, temp_pdf, source_format)
                         pdf_path = temp_pdf
@@ -483,57 +593,34 @@ def convert_document(input_path: str, output_path: str, source_format: SourceFor
                         pdf_path = input_path
 
                     if pages:
-                        logger.info("转换指定PDF页面")
+                        logger.info("Converting specified PDF pages")
                         convert_pdf_to_images(pdf_path, output_path, pages, 'PDF', dpi)
                     else:
-                        logger.info("复制完整PDF文件")
+                        logger.info("Copying complete PDF file")
                         with open(pdf_path, 'rb') as src, open(output_path, 'wb') as dst:
                             dst.write(src.read())
             
             elif target_format in [TargetFormat.PNG, TargetFormat.JPG]:
-                # 先转换为PDF
+                # Convert to PDF first
                 if source_format != SourceFormat.PDF:
-                    logger.info(f"将{source_format}转换为PDF")
+                    logger.info(f"Converting {source_format} to PDF")
                     temp_pdf = os.path.join(temp_dir, 'temp.pdf')
                     convert_to_pdf(input_path, temp_pdf, source_format)
                     pdf_path = temp_pdf
                 else:
                     pdf_path = input_path
                 
-                logger.info(f"将PDF转换为{target_format}图片")
+                logger.info(f"Converting PDF to {target_format} image")
                 convert_pdf_to_images(pdf_path, output_path, pages, target_format, dpi)
             
-            elif target_format == TargetFormat.TXT:
-                if source_format in [SourceFormat.DOC, SourceFormat.DOCX, SourceFormat.WPS]:
-                    logger.info("直接从Word文档提取文本")
-                    text = extract_text_from_word(input_path)
-                    with open(output_path, 'w', encoding='utf-8') as f:
-                        f.write(text)
-                elif source_format in [SourceFormat.PPT, SourceFormat.PPTX, SourceFormat.DPS]:
-                    logger.info("直接从PPT文档提取文本")
-                    text = extract_text_from_ppt(input_path)
-                    with open(output_path, 'w', encoding='utf-8') as f:
-                        f.write(text)
-                else:
-                    # 先转换为PDF再提取文本
-                    if source_format != SourceFormat.PDF:
-                        logger.info(f"将{source_format}转换为PDF")
-                        temp_pdf = os.path.join(temp_dir, 'temp.pdf')
-                        convert_to_pdf(input_path, temp_pdf, source_format)
-                        pdf_path = temp_pdf
-                    else:
-                        pdf_path = input_path
-                    
-                    logger.info("从PDF提取文本")
-                    convert_pdf_to_text(pdf_path, output_path, pages)
             else:
-                error_msg = f"不支持的目标格式: {target_format}"
+                error_msg = f"Unsupported target format: {target_format}"
                 logger.error(error_msg)
                 raise ProcessingError(status_code=400, detail=error_msg)
                 
-            logger.info("文档转换成功完成")
+            logger.info("Document conversion completed successfully")
             
         except Exception as e:
-            error_msg = f"文档转换失败: {str(e)}"
+            error_msg = f"Document conversion failed: {str(e)}"
             logger.error(error_msg)
             raise ProcessingError(status_code=500, detail=error_msg)
