@@ -486,7 +486,7 @@ Resources:
           S3_BUCKET_NAME: !Ref BucketName
           DDB_TABLE_NAME: !Ref TasksTable
       Timeout: 300
-      MemorySize: 2048
+      MemorySize: 4096
       Events:
         ProcessAPI:
           Type: Api
