@@ -76,16 +76,24 @@ class TargetFormat(str, Enum):
 
 def parse_pages_param(pages_str: Optional[str]) -> List[int]:
     """
-    Parse pages parameter from base64 encoded string
-    Example: "1,2,4-10" -> [1, 2, 4, 5, 6, 7, 8, 9, 10]
+    Parse pages parameter from string (direct notation or base64 encoded)
+    Example direct: "1,2,4-10" -> [1, 2, 4, 5, 6, 7, 8, 9, 10]
+    Example base64: "MSwyLDQtMTA=" -> [1, 2, 4, 5, 6, 7, 8, 9, 10]
     """
     if not pages_str:
         return []
-        
-    decoded = custom_b64decode(pages_str)
-    pages = []
     
-    for part in decoded.split(','):
+    # Try to determine if it's base64 encoded or direct notation
+    if not any(c in pages_str for c in ',-_'):
+        # Likely base64 encoded
+        try:
+            pages_str = custom_b64decode(pages_str)
+        except:
+            # If decode fails, use as-is
+            pass
+            
+    pages = []
+    for part in pages_str.split(','):
         if '-' in part:
             start, end = map(int, part.split('-'))
             pages.extend(range(start, end + 1))
@@ -145,12 +153,15 @@ def convert_to_pdf(input_path: str, output_path: str, source_format: SourceForma
         logger.error(error_msg)
         raise ProcessingError(status_code=500, detail=error_msg)
 
-def convert_pdf_to_images(pdf_path: str, output_path: str, pages: List[int] = None, format: str = 'PNG', dpi: int = 300):
-    """Convert PDF pages to images with specified DPI"""
+def convert_pdf_to_images(pdf_path: str, output_dir: str, pages: List[int] = None, format: str = 'PNG', dpi: int = 300) -> List[str]:
+    """
+    Convert PDF pages to images with specified DPI
+    Returns: List of output file paths
+    """
     try:
-        logger.info(f"Converting PDF to {format} images: {pdf_path} -> {output_path}")
+        logger.info(f"Converting PDF to {format} images: {pdf_path} -> {output_dir}")
         pdf_document = fitz.open(pdf_path)
-        images = []
+        output_paths = []
         
         # If no pages specified, convert all pages
         if not pages:
@@ -172,51 +183,35 @@ def convert_pdf_to_images(pdf_path: str, output_path: str, pages: List[int] = No
                 # Get page image
                 pix = page.get_pixmap(matrix=mat, alpha=False)
                 img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-                images.append(img)
+                
+                # Generate output path for this page
+                output_path = os.path.join(output_dir, f"page_{page_num}.{format.lower()}")
+                
+                # Save image
+                img.save(
+                    output_path,
+                    format=format.upper(),
+                    optimize=True,
+                    quality=95 if format.upper() in ['JPG', 'JPEG'] else None
+                )
+                
+                output_paths.append(output_path)
                 
                 # Cleanup
                 del pix
+                del img
                 
             except Exception as e:
                 logger.error(f"Error processing page {page_num}: {str(e)}")
                 raise ValueError(f"Failed to convert page {page_num} to image: {str(e)}")
         
-        if not images:
+        if not output_paths:
             error_msg = "No valid pages to convert"
             logger.error(error_msg)
             raise ProcessingError(status_code=400, detail=error_msg)
         
-        # Save images
-        if format.upper() == 'PDF':
-            logger.info("Saving images as PDF")
-            images[0].save(
-                output_path,
-                "PDF",
-                save_all=True,
-                append_images=images[1:] if len(images) > 1 else [],
-                resolution=dpi
-            )
-        else:
-            if len(images) > 1:
-                logger.info(f"Saving multiple pages as {format}")
-                images[0].save(
-                    output_path,
-                    format=format.upper(),
-                    save_all=True,
-                    append_images=images[1:],
-                    optimize=True,
-                    quality=95 if format.upper() in ['JPG', 'JPEG'] else None
-                )
-            else:
-                logger.info(f"Saving single page as {format}")
-                images[0].save(
-                    output_path,
-                    format=format.upper(),
-                    optimize=True,
-                    quality=95 if format.upper() in ['JPG', 'JPEG'] else None
-                )
-        
         logger.info("Image conversion successful")
+        return output_paths
         
     except Exception as e:
         error_msg = f"Failed to convert PDF to images: {str(e)}"
@@ -593,24 +588,32 @@ def convert_document(input_path: str, output_path: str, source_format: SourceFor
                         pdf_path = input_path
 
                     if pages:
-                        logger.info("Converting specified PDF pages")
-                        convert_pdf_to_images(pdf_path, output_path, pages, 'PDF', dpi)
+                        logger.info("Extracting specified PDF pages")
+                        pdf_document = fitz.open(pdf_path)
+                        new_pdf = fitz.open()
+                        
+                        for page_num in pages:
+                            if page_num <= pdf_document.page_count:
+                                new_pdf.insert_pdf(pdf_document, from_page=page_num-1, to_page=page_num-1)
+                        
+                        new_pdf.save(output_path)
+                        new_pdf.close()
+                        pdf_document.close()
                     else:
                         logger.info("Copying complete PDF file")
                         with open(pdf_path, 'rb') as src, open(output_path, 'wb') as dst:
                             dst.write(src.read())
             
             elif target_format in [TargetFormat.PNG, TargetFormat.JPG]:
-                # Convert to PDF first
-                if source_format != SourceFormat.PDF:
-                    logger.info(f"Converting {source_format} to PDF")
-                    temp_pdf = os.path.join(temp_dir, 'temp.pdf')
-                    convert_to_pdf(input_path, temp_pdf, source_format)
-                    pdf_path = temp_pdf
-                else:
-                    pdf_path = input_path
+                # Always convert to PDF first, regardless of source format
+                logger.info(f"Converting {source_format} to PDF")
+                temp_pdf = os.path.join(temp_dir, 'temp.pdf')
+                convert_to_pdf(input_path, temp_pdf, source_format)
+                pdf_path = temp_pdf
                 
-                logger.info(f"Converting PDF to {target_format} image")
+                logger.info(f"Converting PDF to {target_format} images")
+                # For PDF to PNG/JPG, output_path is treated as output directory
+                os.makedirs(output_path, exist_ok=True)
                 convert_pdf_to_images(pdf_path, output_path, pages, target_format, dpi)
             
             else:

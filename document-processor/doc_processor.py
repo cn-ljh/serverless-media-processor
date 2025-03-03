@@ -39,29 +39,80 @@ class Response:
 
 def parse_operation(operation_str: str) -> tuple[str, dict]:
     """
-    Parse operation string like 'convert,source_doc,target_png,pages_base64string,b_base64bucket'
+    Parse operation string like 'convert,source_doc,target_png,pages_3,5-10,15,b_base64bucket'
     
     Parameters:
     - source_{format}: Source document format
     - target_{format}: Target document format
-    - pages_{base64}: Base64 encoded page range
+    - pages_{range}: Page range (direct notation or base64)
     - b_{base64}: Base64 encoded target bucket name
     """
-    parts = operation_str.split(',')
-    operation = parts[0]
+    # First get the operation type
+    if ',' not in operation_str:
+        raise ProcessingError(status_code=400, detail="Invalid operation string format")
+    
+    operation, rest = operation_str.split(',', 1)
     params = {}
     
-    for param in parts[1:]:
-        if param.startswith('source_'):
-            params['source'] = param[7:]
-        elif param.startswith('target_'):
-            params['target'] = param[7:]
-        elif param.startswith('pages_'):
-            # Store the raw base64 encoded string
-            params['pages'] = param[6:]
-        elif param.startswith('b_'):
-            # Store the raw base64 encoded bucket name
-            params['bucket'] = param[2:]
+    # Process the rest of the string
+    current_param = []
+    current_type = None
+    
+    for part in rest.split(','):
+        # Check if this is a new parameter type
+        if part.startswith(('source_', 'target_', 'pages_', 'b_')):
+            # Save previous parameter if exists
+            if current_type and current_param:
+                value = ','.join(current_param)
+                if current_type == 'source':
+                    params['source'] = value
+                elif current_type == 'target':
+                    params['target'] = value
+                elif current_type == 'pages':
+                    # For pages, keep the original format with commas
+                    params['pages'] = value
+                elif current_type == 'b':
+                    params['bucket'] = value
+                current_param = []
+            
+            # Start new parameter
+            if part.startswith('source_'):
+                current_type = 'source'
+                current_param.append(part[7:])
+            elif part.startswith('target_'):
+                current_type = 'target'
+                current_param.append(part[7:])
+            elif part.startswith('pages_'):
+                current_type = 'pages'
+                current_param.append(part[6:])
+            elif part.startswith('b_'):
+                current_type = 'b'
+                current_param.append(part[2:])
+        else:
+            # Continue previous parameter
+            current_param.append(part)
+    
+    # Save the last parameter
+    if current_type and current_param:
+        value = ','.join(current_param)
+        if current_type == 'source':
+            params['source'] = value
+        elif current_type == 'target':
+            params['target'] = value
+        elif current_type == 'pages':
+            # For pages parameter, check if it's base64 or direct notation
+            if not any(c in value for c in ',-_'):
+                # Likely base64 encoded
+                try:
+                    params['pages'] = custom_b64decode(value)
+                except:
+                    # If decode fails, use as-is
+                    params['pages'] = value
+            else:
+                # Direct page range notation
+                params['pages'] = value
+        elif current_type == 'b':
+            params['bucket'] = value
             
     return operation, params
 
@@ -313,28 +364,68 @@ def process_document_sync(task_id: str, object_key: str, s3_config: S3Config, s3
             with open(input_path, 'wb') as f:
                 f.write(source_data)
                 
+            # Create output directory for multiple files if needed
+            output_dir = os.path.join(temp_dir, 'output')
+            os.makedirs(output_dir, exist_ok=True)
+
             # Convert document
-            output_path = os.path.join(temp_dir, temp_output_name)
-            logger.info(f"Task {task_id}: Converting to {output_path}")
             logger.info(f"Task {task_id}: Converting document from {source_format} to {target_format}")
-            convert_document(
-                input_path=input_path,
-                output_path=output_path,
-                source_format=source_format,
-                target_format=target_format,
-                pages=pages
-            )
             
-            # Upload converted document
-            output_s3_key = get_full_s3_key(output_key)
-            logger.info(f"Task {task_id}: Uploading converted document to S3 bucket {target_bucket} with key: {output_s3_key}")
-            with open(output_path, 'rb') as f:
-                upload_object_to_s3(
-                    s3_client,
-                    target_bucket,
-                    output_s3_key,
-                    f.read()
+            if target_format == TargetFormat.PNG:
+                # Special handling for any to PNG conversion
+                convert_document(
+                    input_path=input_path,
+                    output_path=output_dir,
+                    source_format=source_format,
+                    target_format=target_format,
+                    pages=pages
                 )
+                
+                # Upload each converted image with original filename as prefix
+                base_prefix = os.path.splitext(object_key)[0]
+                
+                # List all generated PNG files
+                png_files = [f for f in os.listdir(output_dir) if f.endswith('.png')]
+                png_files.sort()  # Ensure consistent order
+                
+                for png_file in png_files:
+                    page_num = png_file.split('_')[1].split('.')[0]  # Extract page number
+                    output_s3_key = f"{base_prefix}/page_{page_num}.png"
+                    
+                    logger.info(f"Task {task_id}: Uploading page {page_num} to S3 bucket {target_bucket} with key: {output_s3_key}")
+                    with open(os.path.join(output_dir, png_file), 'rb') as f:
+                        upload_object_to_s3(
+                            s3_client,
+                            target_bucket,
+                            output_s3_key,
+                            f.read()
+                        )
+                
+                # Update output_key to be the prefix directory
+                output_key = f"{base_prefix}/"
+                
+            else:
+                # Standard single-file conversion
+                output_path = os.path.join(temp_dir, temp_output_name)
+                logger.info(f"Task {task_id}: Converting to {output_path}")
+                convert_document(
+                    input_path=input_path,
+                    output_path=output_path,
+                    source_format=source_format,
+                    target_format=target_format,
+                    pages=pages
+                )
+                
+                # Upload converted document
+                output_s3_key = get_full_s3_key(output_key)
+                logger.info(f"Task {task_id}: Uploading converted document to S3 bucket {target_bucket} with key: {output_s3_key}")
+                with open(output_path, 'rb') as f:
+                    upload_object_to_s3(
+                        s3_client,
+                        target_bucket,
+                        output_s3_key,
+                        f.read()
+                    )
         # Update task status
         logger.info(f"Task {task_id}: Conversion completed successfully")
         update_task_status(task_id, task_type, TaskStatus.COMPLETED)
@@ -422,13 +513,18 @@ def process_document(task_id: str, object_key: str, operations: str = None):
         
         # Generate output key
         base_name = os.path.splitext(object_key)[0]
-        if pages:
-            # If pages specified, add page numbers to filename
-            page_indices = '_'.join(str(p) for p in pages)
-            output_key = f"{base_name}_p{page_indices}.{target_format.value}"
+        if target_format == TargetFormat.PNG:
+            # For any to PNG conversion, use directory prefix
+            output_key = f"{base_name}/"
         else:
-            # If no pages specified, use original filename
-            output_key = f"{base_name}.{target_format.value}"
+            # For other conversions, use standard file naming
+            if pages:
+                # If pages specified, add page numbers to filename
+                page_indices = '_'.join(str(p) for p in pages)
+                output_key = f"{base_name}_p{page_indices}.{target_format.value}"
+            else:
+                # If no pages specified, use original filename
+                output_key = f"{base_name}.{target_format.value}"
         
         # Determine target bucket
         target_bucket = s3_config.bucket_name

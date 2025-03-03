@@ -53,8 +53,7 @@ POST /doc/{object_key}
 Parameters:
 - `target_<format>`: Target format to convert to
 - `source_<format>`: Source document format
-- `quality_<1-100>`: Output quality for image formats (default: 90)
-- `dpi_<number>`: DPI for image output (default: 300)
+- `pages_<page,page_range>`: Pages to be coverted
 
 Supported Format Combinations:
 - Source formats: docx, pdf, pptx, xlsx
@@ -64,9 +63,6 @@ Examples:
 ```
 # Convert DOCX to PDF
 POST /doc/document.docx?operations=convert,target_pdf,source_docx
-
-# Convert PDF to PNG with custom quality and DPI
-POST /doc/document.pdf?operations=convert,target_png,source_pdf,quality_95,dpi_400
 
 # Convert PowerPoint to JPG
 POST /doc/presentation.pptx?operations=convert,target_jpg,source_pptx
@@ -82,7 +78,7 @@ Same parameters as synchronous processing, but operations are performed asynchro
 Example:
 ```
 # Async conversion of large document
-POST /async-doc/large-document.pdf?operations=convert,target_png,source_pdf,quality_95
+POST /async-doc/large-document.pdf?operations=convert,target_png
 ```
 
 #### Response
