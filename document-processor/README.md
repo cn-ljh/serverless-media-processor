@@ -106,7 +106,18 @@ For task processing details, see [Task Processor Documentation](../task-processo
   Content-Type: application/[format]
   Content-Disposition: attachment; filename="processed-document.[ext]"
   ```
-- Body: Processed document binary
+- Body: {
+    "task_id": "3c526663-58b4-48d0-affa-8236b686ac9b",
+    "status": "completed",
+    "task_type": "doc/convert",
+    "source_key": "document",
+    "target_key": "document/",
+    "source_bucket": "example-bucket",
+    "target_bucket": "example-bucket",
+    "target_object_url": "presigned url for converting to pdf"
+}
+
+when converting to png/jpg, the target_key is an s3 prefix as the images will be save by page with the prefix, the object key will be pages_#.png.
 
 #### Error
 - Status Code: 400/500

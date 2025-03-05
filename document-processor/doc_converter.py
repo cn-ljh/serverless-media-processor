@@ -188,11 +188,12 @@ def convert_pdf_to_images(pdf_path: str, output_dir: str, pages: List[int] = Non
                 output_path = os.path.join(output_dir, f"page_{page_num}.{format.lower()}")
                 
                 # Save image
+                save_format = 'JPEG' if format.upper() == 'JPG' else format.upper()
                 img.save(
                     output_path,
-                    format=format.upper(),
+                    format=save_format,
                     optimize=True,
-                    quality=95 if format.upper() in ['JPG', 'JPEG'] else None
+                    quality=95 if save_format == 'JPEG' else None
                 )
                 
                 output_paths.append(output_path)

@@ -371,8 +371,8 @@ def process_document_sync(task_id: str, object_key: str, s3_config: S3Config, s3
             # Convert document
             logger.info(f"Task {task_id}: Converting document from {source_format} to {target_format}")
             
-            if target_format == TargetFormat.PNG:
-                # Special handling for any to PNG conversion
+            if target_format in [TargetFormat.PNG, TargetFormat.JPG]:
+                # Special handling for image conversions
                 convert_document(
                     input_path=input_path,
                     output_path=output_dir,
@@ -384,16 +384,16 @@ def process_document_sync(task_id: str, object_key: str, s3_config: S3Config, s3
                 # Upload each converted image with original filename as prefix
                 base_prefix = os.path.splitext(object_key)[0]
                 
-                # List all generated PNG files
-                png_files = [f for f in os.listdir(output_dir) if f.endswith('.png')]
-                png_files.sort()  # Ensure consistent order
+                # List all generated image files
+                image_files = [f for f in os.listdir(output_dir) if f.endswith(f'.{target_format.value}')]
+                image_files.sort()  # Ensure consistent order
                 
-                for png_file in png_files:
-                    page_num = png_file.split('_')[1].split('.')[0]  # Extract page number
-                    output_s3_key = f"{base_prefix}/page_{page_num}.png"
+                for image_file in image_files:
+                    page_num = image_file.split('_')[1].split('.')[0]  # Extract page number
+                    output_s3_key = f"{base_prefix}/page_{page_num}.{target_format.value}"
                     
                     logger.info(f"Task {task_id}: Uploading page {page_num} to S3 bucket {target_bucket} with key: {output_s3_key}")
-                    with open(os.path.join(output_dir, png_file), 'rb') as f:
+                    with open(os.path.join(output_dir, image_file), 'rb') as f:
                         upload_object_to_s3(
                             s3_client,
                             target_bucket,
@@ -513,8 +513,8 @@ def process_document(task_id: str, object_key: str, operations: str = None):
         
         # Generate output key
         base_name = os.path.splitext(object_key)[0]
-        if target_format == TargetFormat.PNG:
-            # For any to PNG conversion, use directory prefix
+        if target_format in [TargetFormat.PNG, TargetFormat.JPG]:
+            # For image conversions, use directory prefix
             output_key = f"{base_name}/"
         else:
             # For other conversions, use standard file naming
