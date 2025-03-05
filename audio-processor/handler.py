@@ -38,7 +38,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     /audio/{proxy+}?operations=operation1,param1_value1,param2_value2
     
     Example:
-    /audio/example.wav?operations=convert,f_aac,ab_96000
+    /audio/example.wav?operations=convert,f_m4a,ab_96000
     
     Returns:
         API Gateway response dictionary with base64 encoded audio data

@@ -29,7 +29,7 @@ def validate_params(params: dict) -> None:
         raise ConversionError("Output format (f) is required")
     
     format = params['f'].lower()
-    if format not in {'mp3', 'aac', 'flac', 'oga', 'ac3', 'opus', 'amr'}:
+    if format not in {'mp3', 'm4a', 'flac', 'oga', 'ac3', 'opus', 'amr'}:
         raise ConversionError(f"Unsupported format: {format}")
     
     # Validate sample rate
@@ -46,8 +46,8 @@ def validate_params(params: dict) -> None:
             raise ConversionError("Opus only supports 8kHz, 12kHz, 16kHz, 24kHz, and 48kHz")
         elif format == 'ac3' and ar not in {32000, 44100, 48000}:
             raise ConversionError("AC3 only supports 32kHz, 44.1kHz, and 48kHz")
-        elif format == 'amr' and ar not in {8000, 16000}:
-            raise ConversionError("AMR only supports 8kHz and 16kHz")
+        elif format == 'amr' and ar != 8000:
+            raise ConversionError("AMR-NB only supports 8kHz sample rate")
     
     # Validate channels
     if 'ac' in params:
@@ -96,7 +96,7 @@ def convert_audio(audio_data: bytes, params: dict) -> bytes:
         params: Dictionary containing conversion parameters:
             - ss (int, optional): Start time in milliseconds
             - t (int, optional): Duration in milliseconds
-            - f (str, required): Output format (mp3, aac, flac, oga, ac3, opus, amr)
+            - f (str, required): Output format (mp3, m4a, flac, oga, ac3, opus, amr)
             - ar (int, optional): Sample rate in Hz
             - ac (int, optional): Number of audio channels
             - aq (int, optional): Audio quality (0-100)
@@ -133,8 +133,11 @@ def convert_audio(audio_data: bytes, params: dict) -> bytes:
         if 't' in params:
             cmd.extend(['-t', str(int(params['t']) / 1000)])  # Convert ms to seconds
         
-        # Add sample rate if specified
-        if 'ar' in params:
+        # Add sample rate
+        # For AMR format, force 8000Hz if not specified or if specified rate is not 8000Hz
+        if params['f'] == 'amr':
+            cmd.extend(['-ar', '8000'])
+        elif 'ar' in params:
             cmd.extend(['-ar', str(params['ar'])])
         
         # Add channels if specified
@@ -155,7 +158,12 @@ def convert_audio(audio_data: bytes, params: dict) -> bytes:
             cmd.extend(['-sample_fmt', f's{params["adepth"]}'])
         
         # Add output format and file
-        cmd.extend(['-f', params['f'], temp_output])
+        # For M4A (AAC), we need to use MP4 format with AAC codec
+        if params['f'] == 'm4a':
+            cmd.extend(['-f', 'mp4', '-c:a', 'aac'])
+        else:
+            cmd.extend(['-f', params['f']])
+        cmd.append(temp_output)
         
         # Run ffmpeg
         process = subprocess.Popen(

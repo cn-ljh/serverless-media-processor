@@ -28,7 +28,14 @@ Parameters:
   * Example: t_60000 (process 60 seconds)
 
 - `f_<format>`: Output format (required)
-  * Supported formats: mp3, aac, flac, oga, ac3, opus, amr
+  * Supported formats: 
+    - mp3: MP3 audio
+    - m4a: AAC audio in M4A container (use this for AAC)
+    - flac: FLAC lossless audio
+    - oga: Ogg Vorbis audio
+    - ac3: Dolby Digital audio
+    - opus: Opus audio
+    - amr: AMR-NB (Adaptive Multi-Rate Narrow Band) audio
   * Example: f_mp3
 
 - `ar_<rate>`: Sample rate in Hz (optional)
@@ -37,7 +44,7 @@ Parameters:
     - mp3: Up to 48kHz
     - opus: 8kHz, 12kHz, 16kHz, 24kHz, 48kHz only
     - ac3: 32kHz, 44.1kHz, 48kHz only
-    - amr: 8kHz, 16kHz only
+    - amr: Always uses 8kHz (automatically resampled if needed)
   * Example: ar_44100
 
 - `ac_<channels>`: Number of audio channels (optional)
@@ -51,6 +58,7 @@ Parameters:
 - `aq_<quality>`: Audio quality (optional)
   * Range: 0-100
   * Mutually exclusive with ab parameter
+  * For MP3: Quality is automatically scaled to MP3's 0-9 scale
   * Example: aq_90
 
 - `ab_<bitrate>`: Audio bitrate in bps (optional)
@@ -60,9 +68,9 @@ Parameters:
 
 - `abopt_<option>`: Bitrate option (optional)
   * Values:
-    - 0: Always use target bitrate (default)
-    - 1: Use source bitrate if lower than target
-    - 2: Fail if source bitrate is lower
+    - '0': Always use target bitrate (default)
+    - '1': Use source bitrate if lower than target
+    - '2': Fail if source bitrate is lower
   * Example: abopt_1
 
 - `adepth_<depth>`: Sample depth for FLAC (optional)
@@ -77,9 +85,9 @@ Parameters:
 GET /audio/example.wav?operations=convert,f_mp3
 ```
 
-2. Convert to AAC with Specific Bitrate
+2. Convert to AAC (using M4A container)
 ```
-GET /audio/example.wav?operations=convert,f_aac,ab_96000
+GET /audio/example.wav?operations=convert,f_m4a,ab_96000
 ```
 
 3. Extract 60-second Segment Starting at 10 Seconds
@@ -92,9 +100,9 @@ GET /audio/example.wav?operations=convert,ss_10000,t_60000,f_mp3
 GET /audio/example.wav?operations=convert,f_flac,ar_96000,adepth_24
 ```
 
-5. Convert to Mono AAC with Sample Rate
+5. Convert to AMR-NB (automatically resampled to 8kHz)
 ```
-GET /audio/example.wav?operations=convert,f_aac,ac_1,ar_44100,ab_64000
+GET /audio/example.wav?operations=convert,f_amr,ac_1
 ```
 
 ## Response
@@ -109,14 +117,33 @@ GET /audio/example.wav?operations=convert,f_aac,ac_1,ar_44100,ab_64000
   ETag: [md5-hash]
   ```
 
+Content Types by Format:
+- wav: audio/wav
+- mp3: audio/mpeg
+- ogg: audio/ogg
+- m4a: audio/mp4 (AAC)
+- flac: audio/flac
+- opus: audio/opus
+- ac3: audio/ac3
+- amr: audio/amr
+
 ### Error Response
-- Status Code: 400/500
+- Status Code: 400 (Invalid Request) / 500 (Internal Error)
 - Body:
   ```json
   {
-    "error": "Error message"
+    "error": "Error message",
+    "status_code": 400,
+    "detail": "Detailed error description"
   }
   ```
+
+Common errors:
+- Invalid parameter values
+- Unsupported input format (only WAV supported)
+- Format-specific restrictions violations
+- FFmpeg conversion failures
+- Invalid output format or container format mismatches
 
 ## Notes
 
@@ -128,3 +155,5 @@ GET /audio/example.wav?operations=convert,f_aac,ac_1,ar_44100,ab_64000
 - Audio files are cached for 1 hour (Cache-Control: public, max-age=3600)
 - Parameters aq (quality) and ab (bitrate) are mutually exclusive
 - Format-specific restrictions apply to sample rates and channel counts
+- MP3 quality (aq) is automatically scaled from 0-100 to MP3's 0-9 scale
+- AAC audio must be wrapped in an M4A container (use f_m4a) - internally uses FFmpeg's MP4 format with AAC codec

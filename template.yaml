@@ -556,7 +556,7 @@ Outputs:
     Value: !Sub "https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/async-doc/{object_key}?operations=convert,target_png,source_docx"
   AudioEndpoint:
     Description: Audio processing endpoint
-    Value: !Sub "https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/audio/{key}?operations=convert,ss_10000,t_60000,f_aac,ab_96000"
+    Value: !Sub "https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/audio/{key}?operations=convert,f_mp3"
   TasksTableName:
     Description: Name of the DynamoDB table for task tracking
     Value: !Ref TasksTable
