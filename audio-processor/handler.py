@@ -1,9 +1,11 @@
 import json
 import base64
 import logging
+import traceback
 from typing import Dict, Any
 
 from audio_processor import process_audio, ProcessingError
+from error_handler import capture_error, error_handler
 
 # Configure logging
 logging.basicConfig(
@@ -30,6 +32,7 @@ def create_response(status_code: int, body: Any, headers: Dict[str, str] = None)
         
     return response
 
+@capture_error
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     AWS Lambda handler for audio processing.
@@ -74,8 +77,34 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         )
         
     except Exception as e:
+        # Get task ID from context
+        task_id = context.aws_request_id
+        
+        # Extract error details
+        error_message = str(e)
+        error_details = {
+            'traceback': traceback.format_exc(),
+            'error_type': e.__class__.__name__,
+            'operations': query_parameters.get('operations') if 'query_parameters' in locals() else None
+        }
+        
+        # Record error in DynamoDB and send notification
+        error_handler.record_error(
+            task_id=task_id,
+            task_type="audio/process",
+            source_key=audio_key if 'audio_key' in locals() else "unknown",
+            error_message=error_message,
+            error_details=error_details
+        )
+        
         logger.error(f"Unexpected error: {str(e)}")
+        logger.error(traceback.format_exc())
+        
         return create_response(
             status_code=500,
-            body={'error': f"Internal server error: {str(e)}"}
+            body={
+                'error': f"Internal server error: {str(e)}",
+                'task_id': task_id,
+                'message': 'Error details have been recorded and will be investigated.'
+            }
         )

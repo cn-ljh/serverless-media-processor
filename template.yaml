@@ -22,6 +22,10 @@ Resources:
       Environment:
         Variables:
           S3_BUCKET_NAME: !Ref BucketName
+          ERROR_SNS_TOPIC: !Ref ProcessingErrorsTopic
+      DeadLetterQueue:
+        Type: SQS
+        TargetArn: !GetAtt ProcessingErrorsQueue.Arn
       Policies:
         - S3CrudPolicy:
             BucketName: !Ref BucketName
@@ -300,8 +304,12 @@ Resources:
           S3_BUCKET_NAME: !Ref BucketName
           DDB_BWM_TABLE_NAME: !Ref BlindWatermarkTable
           DDB_TASK_TABLE_NAME: !Ref TasksTable
+          ERROR_SNS_TOPIC: !Ref ProcessingErrorsTopic
       Timeout: 600
       MemorySize: 2048
+      DeadLetterQueue:
+        Type: SQS
+        TargetArn: !GetAtt ProcessingErrorsQueue.Arn
       # Policies:
       #   - S3CrudPolicy:
       #       BucketName: !Ref BucketName
@@ -333,8 +341,12 @@ Resources:
       Environment:
         Variables:
           S3_BUCKET_NAME: !Ref BucketName
+          ERROR_SNS_TOPIC: !Ref ProcessingErrorsTopic
       Timeout: 300
       MemorySize: 2048
+      DeadLetterQueue:
+        Type: SQS
+        TargetArn: !GetAtt ProcessingErrorsQueue.Arn
       Policies:
         - S3CrudPolicy:
             BucketName: !Ref BucketName
@@ -383,6 +395,14 @@ Resources:
                   - lambda:InvokeFunction
                   - lambda:InvokeAsync
                 Resource: '*'
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt ProcessingErrorsQueue.Arn
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref ProcessingErrorsTopic
   ImageProcessorRole:
     Type: AWS::IAM::Role
     Properties:
@@ -418,6 +438,14 @@ Resources:
                 Resource: 
                   - !GetAtt BlindWatermarkTable.Arn
                   - !GetAtt TasksTable.Arn
+              - Effect: Allow
+                Action:
+                  - sqs:SendMessage
+                Resource: !GetAtt ProcessingErrorsQueue.Arn
+              - Effect: Allow
+                Action:
+                  - sns:Publish
+                Resource: !Ref ProcessingErrorsTopic
 
   TaskProcessorRole:
     Type: AWS::IAM::Role
@@ -472,6 +500,12 @@ Resources:
             Method: get
             RestApiId: !Ref MediaProcessorApi
 
+  ProcessingErrorsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      MessageRetentionPeriod: 1209600  # 14 days
+      VisibilityTimeout: 300
+      
   DocumentProcessorFunction:
     Type: AWS::Serverless::Function
     Metadata:
@@ -487,6 +521,9 @@ Resources:
           DDB_TABLE_NAME: !Ref TasksTable
       Timeout: 300
       MemorySize: 4096
+      DeadLetterQueue:
+        Type: SQS
+        TargetArn: !GetAtt ProcessingErrorsQueue.Arn
       Events:
         ProcessAPI:
           Type: Api
@@ -532,10 +569,66 @@ Resources:
           KeyType: HASH
       BillingMode: PAY_PER_REQUEST
 
+  # SNS Topic for error notifications
+  ProcessingErrorsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: MediaProcessingErrors
+      TopicName: !Sub "${AWS::StackName}-processing-errors"
+      
+  # CloudWatch Alarm for DLQ
+  DLQAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmDescription: Alarm when messages appear in the Dead Letter Queue
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt ProcessingErrorsQueue.QueueName
+      Statistic: Sum
+      Period: 60
+      EvaluationPeriods: 1
+      Threshold: 1
+      ComparisonOperator: GreaterThanOrEqualToThreshold
+      AlarmActions:
+        - !Ref ProcessingErrorsTopic
+        
+  # Lambda function to process DLQ messages
+  DLQProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: task-processor/
+      Handler: dlq_processor.handler
+      Runtime: python3.9
+      Environment:
+        Variables:
+          DDB_TABLE_NAME: !Ref TasksTable
+          SNS_TOPIC_ARN: !Ref ProcessingErrorsTopic
+      Policies:
+        - SQSPollerPolicy:
+            QueueName: !GetAtt ProcessingErrorsQueue.QueueName
+        - SNSPublishMessagePolicy:
+            TopicName: !GetAtt ProcessingErrorsTopic.TopicName
+        - DynamoDBCrudPolicy:
+            TableName: !Ref TasksTable
+      Events:
+        SQSEvent:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt ProcessingErrorsQueue.Arn
+            BatchSize: 10
+            
 Outputs:
   ApiEndpoint:
     Description: API Gateway endpoint URL
     Value: !Sub "https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod"
+  ErrorQueueURL:
+    Description: URL of the Dead Letter Queue for failed processing
+    Value: !Ref ProcessingErrorsQueue
+  ErrorTopicARN:
+    Description: ARN of the SNS topic for error notifications
+    Value: !Ref ProcessingErrorsTopic
   ImageEndpoint:
     Description: Image processing endpoint
     Value: !Sub "https://${MediaProcessorApi}.execute-api.${AWS::Region}.amazonaws.com.cn/prod/image/{key}?operations=resize,w_1000/watermark,text_54mI5p2D5omA5pyJ/format,jpg"

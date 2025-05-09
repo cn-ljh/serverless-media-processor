@@ -1,51 +1,58 @@
 # Serverless Media Processor
 
-A serverless solution for processing various types of media files (images, documents, videos) using AWS Lambda and API Gateway. This project provides a set of RESTful APIs for media processing operations including image manipulation, document conversion, and video frame extraction.
+A serverless solution for processing various types of media files (images, documents, videos, audio) using AWS Lambda and API Gateway. This project provides a set of RESTful APIs for media processing operations including image manipulation, document conversion, video frame extraction, and audio processing.
+
+## Features
+
+- **Image processing**: resize, crop, watermark, format conversion, auto-orient, grayscale
+- **Document processing**: format conversion (PDF, DOCX, PNG, etc.), text extraction
+- **Video processing**: format conversion, frame extraction, snapshot generation
+- **Audio processing**: format conversion, bitrate adjustment
+- **Asynchronous processing** for long-running tasks
+- **Task status tracking** and retrieval
+- **Comprehensive error handling** with DLQ, SNS notifications, and error tracking
 
 ## Architecture
 
-The project follows a serverless microservices architecture:
+The project follows a serverless microservices architecture with specialized processors for different media types:
 
-```
-API Gateway
-    │
-    ├── /image/* → Image Processor Lambda
-    │   - Handles image resizing, cropping, watermarking
-    │   - Uses S3 for storage
-    │
-    ├── /doc/* → Document Processor Lambda
-    │   - Handles document conversion, text extraction
-    │   - Uses S3 for storage
-    │   - Uses DynamoDB for async tasks
-    │    
-    ├── /async-doc/* → Async Document Processor Lambda
-    │   - Handles document conversion, text extraction
-    │   - Uses S3 for storage
-    │   - Uses DynamoDB for async tasks
-    │
-    ├── /video/* → Video Processor Lambda
-    │   - Handles video frame extraction
-    │   - Uses S3 for storage
-    │
-    ├── /audio/* → Audio Processor Lambda
-    │   - Handles audio format conversion
-    │   - Uses S3 for storage
-    │
-    └── /task/* → Task Processor Lambda
-        - Tracks async operation status
-        - Uses DynamoDB for task tracking
-```
+![Serverless Media Processor Architecture](architecture.png)
 
-Components:
-- API Gateway: RESTful API endpoints for media processing
-- Lambda Functions:
-  - Image Processor: Image manipulation (resize, crop, watermark, etc.)
-  - Document Processor: Document conversion and text extraction
-  - Video Processor: Video frame extraction and snapshot generation
-  - Audio Processor: Audio format conversion and processing
-  - Task Processor: Asynchronous task status tracking
-- S3: Storage for source and processed media files
-- DynamoDB: Task status tracking for asynchronous operations
+*Note: The architecture diagram is available in both PNG format for direct viewing and draw.io format for editing. You can open the draw.io file with [draw.io](https://app.diagrams.net/) or any compatible viewer.*
+
+### Components
+
+- **API Gateway**: RESTful API endpoints for media processing
+- **Lambda Functions**:
+  - **Image Processor**: Image manipulation (resize, crop, watermark, etc.)
+  - **Document Processor**: Document conversion and text extraction
+  - **Video Processor**: Video frame extraction and snapshot generation
+  - **Audio Processor**: Audio format conversion and processing
+  - **Task Processor**: Asynchronous task status tracking
+- **S3**: Storage for source and processed media files
+- **DynamoDB**: Task status tracking for asynchronous operations
+- **SQS**: Dead Letter Queue for failed processing
+- **SNS**: Notifications for processing errors
+
+### Processing Flow
+
+1. Client uploads media to S3 or provides a URL
+2. Client calls the appropriate API endpoint with processing parameters
+3. API Gateway routes the request to the appropriate Lambda function
+4. Lambda processes the media and stores results in S3
+5. For asynchronous operations, task status is stored in DynamoDB
+6. Client can check task status using the Task API
+
+## API Endpoints
+
+- `/image/{key}?operations=...` - Process images
+- `/doc/{key}?operations=...` - Process documents
+- `/video/{key}?operations=...` - Process videos
+- `/audio/{key}?operations=...` - Process audio
+- `/task/{task_id}` - Get task status
+- `/async-image/{key}?operations=...` - Asynchronous image processing
+- `/async-doc/{key}?operations=...` - Asynchronous document processing
+- `/text/{key}?operations=extract` - Extract text from documents
 
 ## Prerequisites
 
@@ -56,23 +63,13 @@ Components:
 
 ## Deployment
 
-1. Clone the repository:
+Use the provided deploy.sh script:
+
 ```bash
-git clone <repository-url>
-cd serverless-media-processor
+./deploy.sh <bucket-name>
 ```
 
-2. Build the project:
-```bash
-sam build
-```
-
-3. Deploy to AWS:
-```bash
-sam deploy --guided
-```
-
-During the guided deployment, you'll need to provide:
+During deployment, you'll need to provide:
 - Stack Name (e.g., media-processor)
 - AWS Region
 - S3 Bucket Name for media storage
@@ -81,7 +78,7 @@ During the guided deployment, you'll need to provide:
 
 ## Quick Start
 
-After deployment, you'll receive API endpoints for different media processing operations. Here are some quick examples:
+After deployment, you'll receive API endpoints for different media processing operations. Here are some examples:
 
 ### 1. Image Processing
 ```bash
@@ -147,6 +144,10 @@ The project uses AWS SAM template (template.yaml) for infrastructure configurati
 - DynamoDB:
   - Task tracking table
   - Blind watermark table
+- SQS:
+  - Dead Letter Queue for failed processing
+- SNS:
+  - Error notification topic
 
 ## Development
 
@@ -181,6 +182,7 @@ sam deploy
 - CloudWatch Logs are enabled for API Gateway and all Lambda functions
 - API Gateway access logs track request/response details
 - DynamoDB tables track task status and processing details
+- CloudWatch alarms monitor DLQ message count
 
 ## Limitations
 
@@ -203,11 +205,42 @@ sam deploy
 - DynamoDB access is controlled via IAM roles
 - All processed files inherit source file permissions
 
-## Support
+## Error Handling Mechanisms
 
-For detailed information about specific operations, refer to the README.md files in each processor's directory:
-- Image operations: [image-processor/README.md](image-processor/README.md)
-- Document operations: [document-processor/README.md](document-processor/README.md)
-- Video operations: [video-processor/README.md](video-processor/README.md)
-- Audio operations: [audio-processor/README.md](audio-processor/README.md)
-- Task status: [task-processor/README.md](task-processor/README.md)
+The application includes comprehensive error handling mechanisms:
+
+### 1. Dead Letter Queue (DLQ)
+
+Failed Lambda invocations are sent to an SQS Dead Letter Queue, which:
+- Captures errors that occur during asynchronous processing
+- Preserves the original request for debugging and retry
+- Triggers CloudWatch alarms when errors occur
+
+### 2. Error Recording in DynamoDB
+
+All errors are recorded in DynamoDB with:
+- Task ID for tracking
+- Error message and stack trace
+- Request details (source file, operations)
+- Timestamp information
+
+### 3. Error Notifications via SNS
+
+Critical errors trigger SNS notifications that can be:
+- Sent to email addresses
+- Integrated with monitoring systems
+- Used to trigger automated remediation
+
+### 4. Centralized Error Handling
+
+Each processor module includes:
+- Custom error handler class
+- Error capture decorators
+- Consistent error response format
+
+### 5. CloudWatch Monitoring
+
+The system includes:
+- CloudWatch alarms for DLQ message count
+- API Gateway access logging
+- Lambda function logging

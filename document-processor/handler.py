@@ -1,11 +1,15 @@
 import json
 import uuid
+import os
+import traceback
 from typing import Dict, Any
 from urllib.parse import unquote
 from b64encoder_decoder import custom_b64decode
 from doc_processor import process_document, get_task_status
 from text_extractor import TextExtractor
+from error_handler import capture_error, error_handler
 
+@capture_error
 def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """Lambda handler for document processing"""
     print(f"Received event: {json.dumps(event)}")
@@ -123,9 +127,38 @@ def handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             }
             
     except Exception as e:
+        # Get task ID from event or context
+        task_id = event.get("TaskId", context.aws_request_id)
+        
+        # Extract error details
+        error_message = str(e)
+        stack_trace = traceback.format_exc()
+        error_details = {
+            'traceback': stack_trace,
+            'error_type': e.__class__.__name__,
+            'event_path': request_path,
+            'operation': operations_str
+        }
+        
+        # Log the full error details
+        logger.error(f"Document processor error: {error_message}")
+        logger.error(f"Stack trace: {stack_trace}")
+        
+        # Record error in DynamoDB and send notification
+        error_handler.record_error(
+            task_id=task_id,
+            task_type="doc/convert",
+            source_key=object_key,
+            error_message=error_message,
+            error_details=error_details
+        )
+        
+        # Return error response
         return {
             'statusCode': 500,
             'body': json.dumps({
-                'error': str(e)
+                'error': error_message,
+                'task_id': task_id,
+                'message': 'Error details have been recorded and will be investigated.'
             }, ensure_ascii=False)
         }

@@ -1,10 +1,13 @@
 import json
 import uuid
+import traceback
 from typing import Dict, Any
 import base64
 from urllib.parse import unquote
 from image_processor import process_image
+from error_handler import capture_error, error_handler
 
+@capture_error
 def handler(event: Dict[str, Any], context:Any) -> Dict[str, Any]:
     """Get and process image based on path parameter and operations"""
     print(f"Received event: {json.dumps(event)}")
@@ -59,10 +62,34 @@ def handler(event: Dict[str, Any], context:Any) -> Dict[str, Any]:
         }
 
     except Exception as e:
+        # Get task ID from event or context
+        task_id = event.get("TaskId", context.aws_request_id)
+        
+        # Extract error details
+        error_message = str(e)
+        error_details = {
+            'traceback': traceback.format_exc(),
+            'error_type': e.__class__.__name__,
+            'event_path': event.get('path', ''),
+            'operation': query_params.get('operations', '')
+        }
+        
+        # Record error in DynamoDB and send notification
+        error_handler.record_error(
+            task_id=task_id,
+            task_type="image/process",
+            source_key=object_key if 'object_key' in locals() else "unknown",
+            error_message=error_message,
+            error_details=error_details
+        )
+        
+        # Return error response
         return {
             'statusCode': 500,
             'body': json.dumps({
-                'error': str(e)
+                'error': error_message,
+                'task_id': task_id,
+                'message': 'Error details have been recorded and will be investigated.'
             })
         }
 
